@@ -3,6 +3,13 @@ import { useState, useEffect } from "react"
 import { ArrowLeft, Save } from "lucide-react"
 import Link from "next/link"
 
+const iconOptions = [
+  "📦", "🎮", "🖥️", "⌨️", "🖱️", "🎧", "📱", "💻",
+  "🖨️", "📷", "🎯", "⚡", "🔥", "⭐", "💎", "🏆",
+  "🎨", "🎭", "🎪", "🎬", "🎤", "🎸", "🎹", "🥁",
+  "🚀", "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏓"
+]
+
 export default function AddCategoryPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [selectedIcon, setSelectedIcon] = useState("📦")
