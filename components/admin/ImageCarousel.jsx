@@ -9,6 +9,29 @@ export function ImageCarousel({ images, onImageClick, showControls = true, class
   const [showFullscreen, setShowFullscreen] = React.useState(false)
   const [fullscreenIndex, setFullscreenIndex] = React.useState(0)
 
+  // Keyboard navigation for fullscreen - must be before early return
+  React.useEffect(() => {
+    if (!showFullscreen) return
+
+    const handleKeyPress = (e) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setFullscreenIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1))
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        setFullscreenIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1))
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowFullscreen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyPress)
+    return () => window.removeEventListener('keydown', handleKeyPress)
+  }, [showFullscreen, images?.length || 0])
+
   if (!images || images.length === 0) {
     return (
       <div className={`flex items-center justify-center h-64 bg-muted rounded-lg ${className}`}>
@@ -45,29 +68,6 @@ export function ImageCarousel({ images, onImageClick, showControls = true, class
   const goToNextFullscreen = () => {
     setFullscreenIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1))
   }
-
-  // Keyboard navigation for fullscreen
-  React.useEffect(() => {
-    if (!showFullscreen) return
-
-    const handleKeyPress = (e) => {
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        setFullscreenIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1))
-      }
-      if (e.key === 'ArrowRight') {
-        e.preventDefault()
-        setFullscreenIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1))
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setShowFullscreen(false)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyPress)
-    return () => window.removeEventListener('keydown', handleKeyPress)
-  }, [showFullscreen, images.length])
 
   return (
     <>

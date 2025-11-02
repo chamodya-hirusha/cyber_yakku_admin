@@ -733,7 +733,7 @@ export default function CategoryManagementPage() {
                     <div className="text-center py-12 text-gray-500">
                       <Table2 className="h-16 w-16 mx-auto mb-4 opacity-30" />
                       <p className="text-lg">No items found in this category</p>
-                      <p className="text-sm">Click the "Add" button above to create items for this category</p>
+                      <p className="text-sm">Click the &quot;Add&quot; button above to create items for this category</p>
                     </div>
                   )}
               </div>

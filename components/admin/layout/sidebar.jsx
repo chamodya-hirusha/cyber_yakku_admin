@@ -11,13 +11,14 @@ import {
   Users,
   Settings,
   BarChart3,
-  Image,
+  Image as ImageIcon,
   ShoppingCart,
   User,
   Mail,
   HelpCircle,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -41,7 +42,7 @@ const navigation = [
   {
     name: "Media",
     href: "/admin/media",
-    icon: Image,
+    icon: ImageIcon,
   },
   {
     name: "Users",
@@ -67,6 +68,7 @@ const navigation = [
 export function Sidebar({ isCollapsed, onToggle }) {
   const pathname = usePathname()
   const [expandedItems, setExpandedItems] = React.useState(new Set())
+  const [logoError, setLogoError] = React.useState(false)
 
   const toggleExpanded = (itemName) => {
     const newExpanded = new Set(expandedItems)
@@ -86,17 +88,35 @@ export function Sidebar({ isCollapsed, onToggle }) {
       )}
     >
       {/* Header */}
-      <div className="flex h-16 items-center justify-between px-4 border-b">
-        {!isCollapsed && (
-          <h1 className="text-xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            Cyber Yakku
-          </h1>
-        )}
+      <div className="flex h-16 items-center justify-between px-4 border-b gap-2">
+        <Link href="/admin/dashboard" className="flex items-center flex-1 min-w-0">
+          {isCollapsed ? (
+            <div className="h-10 w-10 rounded-lg bg-gradient-primary flex items-center justify-center flex-shrink-0">
+              <Sparkles className="h-6 w-6 text-white" />
+            </div>
+          ) : (
+            <div className="flex items-center w-full">
+              {logoError ? (
+                <div className="h-8 px-3 bg-gradient-primary rounded flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">CY</span>
+                </div>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/resources/Logo/CYBER_NEW.webp"
+                  alt="Cyber Yakku Logo"
+                  className="h-8 w-auto max-w-full object-contain"
+                  onError={() => setLogoError(true)}
+                />
+              )}
+            </div>
+          )}
+        </Link>
         <Button
           variant="ghost"
           size="icon"
           onClick={onToggle}
-          className="ml-auto"
+          className={cn("flex-shrink-0", isCollapsed ? "mx-auto" : "ml-auto")}
         >
           {isCollapsed ? (
             <ChevronRight className="h-4 w-4" />
