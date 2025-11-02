@@ -69,8 +69,13 @@ export async function POST(request) {
       pid,
       featured = false,
       image_url,
+      images = [],
       status = 'draft',
-      tags = []
+      tags = [],
+      meta_title,
+      meta_description,
+      meta_keywords,
+      og_image_url
     } = body
 
     if (!name || !name.trim()) {
@@ -87,48 +92,144 @@ export async function POST(request) {
       )
     }
 
+    // Validate and collect images
+    const imagesToInsert = []
+    
+    // First, check images array (takes priority)
+    if (Array.isArray(images) && images.length > 0) {
+      // Filter out empty strings and null values
+      const validImages = images.filter(img => img && typeof img === 'string' && img.trim())
+      if (validImages.length > 0) {
+        imagesToInsert.push(...validImages.map(img => img.trim()))
+      }
+    }
+    
+    // Then check image_url (if no images array or array is empty)
+    if (imagesToInsert.length === 0 && image_url && typeof image_url === 'string' && image_url.trim()) {
+      imagesToInsert.push(image_url.trim())
+    }
+
+    // Validate that at least one image is provided
+    if (imagesToInsert.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'At least one product image is required' },
+        { status: 400 }
+      )
+    }
+
+    console.log('Creating product with images:', {
+      productName: name,
+      imagesCount: imagesToInsert.length,
+      imagesReceived: {
+        imagesArray: Array.isArray(images) ? images.length : 'not array',
+        imageUrl: image_url ? 'provided' : 'not provided',
+        imagesInserting: imagesToInsert.map((img, i) => `${i + 1}: ${img.substring(0, 50)}...`)
+      }
+    })
+
     const connection = await pool.getConnection()
 
     try {
-      // Insert product (image_url is stored in product_image table, not in product table)
-      const query = `
-       INSERT INTO product (
-        name, description, category_id, type_id, brand_id, model_id,
-        price, discount, stock_quantity, pid, featured, status, tags, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-        `
-
-
       // Convert tags array to JSON string if it's an array, otherwise use as is
       const tagsValue = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]')
 
-      const values = [
-        name.trim(),
-        description?.trim() || null,
-        parseInt(category_id),
-        type_id ? parseInt(type_id) : null,
-        brand_id ? parseInt(brand_id) : null,
-        model_id ? parseInt(model_id) : null,
-        parseFloat(price) || 0,
-        parseFloat(discount) || 0,
-        parseInt(stock_quantity) || 0,
-        pid?.trim() || null,
-        Boolean(featured),
-        status,
-        tagsValue
-      ]
+      // Try to insert with SEO fields first, fallback to basic insert if columns don't exist
+      let query, values, result
+      
+      try {
+        // Insert product with SEO fields
+        query = `
+         INSERT INTO product (
+          name, description, category_id, type_id, brand_id, model_id,
+          price, discount, stock_quantity, pid, featured, status, tags, 
+          meta_title, meta_description, meta_keywords, og_image_url,
+          created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+          `
 
-      const [result] = await connection.execute(query, values)
+        values = [
+          name.trim(),
+          description?.trim() || null,
+          parseInt(category_id),
+          type_id ? parseInt(type_id) : null,
+          brand_id ? parseInt(brand_id) : null,
+          model_id ? parseInt(model_id) : null,
+          parseFloat(price) || 0,
+          parseFloat(discount) || 0,
+          parseInt(stock_quantity) || 0,
+          pid?.trim() || null,
+          Boolean(featured),
+          status,
+          tagsValue,
+          meta_title?.trim() || null,
+          meta_description?.trim() || null,
+          meta_keywords?.trim() || null,
+          og_image_url?.trim() || null
+        ]
+
+        [result] = await connection.execute(query, values)
+      } catch (seoError) {
+        // If SEO columns don't exist, use basic insert without SEO fields
+        if (seoError.code === 'ER_BAD_FIELD_ERROR') {
+          query = `
+           INSERT INTO product (
+            name, description, category_id, type_id, brand_id, model_id,
+            price, discount, stock_quantity, pid, featured, status, tags,
+            created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            `
+
+          values = [
+            name.trim(),
+            description?.trim() || null,
+            parseInt(category_id),
+            type_id ? parseInt(type_id) : null,
+            brand_id ? parseInt(brand_id) : null,
+            model_id ? parseInt(model_id) : null,
+            parseFloat(price) || 0,
+            parseFloat(discount) || 0,
+            parseInt(stock_quantity) || 0,
+            pid?.trim() || null,
+            Boolean(featured),
+            status,
+            tagsValue
+          ]
+
+          [result] = await connection.execute(query, values)
+        } else {
+          throw seoError
+        }
+      }
       const productId = result.insertId
 
-      // If image_url is provided, insert into product_image table
-      if (image_url && image_url.trim()) {
+      console.log(`Product created with ID: ${productId}, preparing to insert ${imagesToInsert.length} images`)
+
+      // Insert all images into product_image table
+      if (imagesToInsert.length > 0) {
         const imageQuery = `
           INSERT INTO product_image (product_product_id, image_url, is_main, uploaded_at)
           VALUES (?, ?, ?, NOW())
         `
-        await connection.execute(imageQuery, [productId, image_url.trim(), true])
+        // First image is marked as main
+        for (let i = 0; i < imagesToInsert.length; i++) {
+          const imageUrl = imagesToInsert[i]
+          
+          try {
+            console.log(`Inserting image ${i + 1}/${imagesToInsert.length} for product ${productId}`, {
+              isMain: i === 0,
+              imageUrlLength: imageUrl.length,
+              imageUrlPreview: imageUrl.substring(0, 100) + '...'
+            })
+            const [imageResult] = await connection.execute(imageQuery, [productId, imageUrl, i === 0])
+            console.log(`Image ${i + 1} inserted successfully, ID: ${imageResult.insertId}`)
+          } catch (imageError) {
+            console.error(`Error inserting image ${i + 1}:`, imageError)
+            connection.release()
+            throw imageError
+          }
+        }
       }
 
       connection.release()

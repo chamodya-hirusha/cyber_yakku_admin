@@ -77,8 +77,13 @@ export async function PUT(request, { params }) {
       pid,
       featured,
       image_url,
+      images = [],
       status,
-      tags
+      tags,
+      meta_title,
+      meta_description,
+      meta_keywords,
+      og_image_url
     } = body
 
     if (!name || !name.trim()) {
@@ -95,59 +100,147 @@ export async function PUT(request, { params }) {
       )
     }
 
+    // Validate that at least one image is provided
+    const imagesToCheck = []
+    if (Array.isArray(images) && images.length > 0) {
+      imagesToCheck.push(...images.filter(img => img && img.trim()))
+    }
+    if (image_url && image_url.trim()) {
+      imagesToCheck.push(image_url.trim())
+    }
+
+    // For update, check if there are existing images if no new images provided
+    if (imagesToCheck.length === 0) {
+      // Check if product has existing images
+      const connection = await pool.getConnection()
+      try {
+        const [existingImages] = await connection.execute(
+          'SELECT id FROM product_image WHERE product_product_id = ? LIMIT 1',
+          [id]
+        )
+        
+        if (existingImages.length === 0) {
+          connection.release()
+          return NextResponse.json(
+            { success: false, error: 'At least one product image is required. Please add an image or keep existing images.' },
+            { status: 400 }
+          )
+        }
+        // If existing images found, allow update without new images
+      } catch (checkError) {
+        connection.release()
+        return NextResponse.json(
+          { success: false, error: 'At least one product image is required' },
+          { status: 400 }
+        )
+      }
+      connection.release()
+    }
+
     const connection = await pool.getConnection()
 
     try {
-      // Update product
-      const query = `
-        UPDATE product SET 
-          name = ?, description = ?, category_id = ?, type_id = ?, brand_id = ?, model_id = ?,
-          price = ?, discount = ?, stock_quantity = ?, pid = ?, featured = ?, status = ?, tags = ?, updated_at = NOW()
-        WHERE product_id = ?
-      `
-
       // Convert tags array to JSON string if it's an array, otherwise use as is
       const tagsValue = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]')
 
-      const values = [
-        name.trim(),
-        description?.trim() || null,
-        parseInt(category_id),
-        type_id ? parseInt(type_id) : null,
-        brand_id ? parseInt(brand_id) : null,
-        model_id ? parseInt(model_id) : null,
-        parseFloat(price) || 0,
-        parseFloat(discount) || 0,
-        parseInt(stock_quantity) || 0,
-        pid?.trim() || null,
-        Boolean(featured),
-        status,
-        tagsValue,
-        id
-      ]
+      // Try to update with SEO fields first, fallback to basic update if columns don't exist
+      let query, values, result
+      
+      try {
+        // Update product with SEO fields
+        query = `
+          UPDATE product SET 
+            name = ?, description = ?, category_id = ?, type_id = ?, brand_id = ?, model_id = ?,
+            price = ?, discount = ?, stock_quantity = ?, pid = ?, featured = ?, status = ?, tags = ?,
+            meta_title = ?, meta_description = ?, meta_keywords = ?, og_image_url = ?, updated_at = NOW()
+          WHERE product_id = ?
+        `
 
-      const [result] = await connection.execute(query, values)
+        values = [
+          name.trim(),
+          description?.trim() || null,
+          parseInt(category_id),
+          type_id ? parseInt(type_id) : null,
+          brand_id ? parseInt(brand_id) : null,
+          model_id ? parseInt(model_id) : null,
+          parseFloat(price) || 0,
+          parseFloat(discount) || 0,
+          parseInt(stock_quantity) || 0,
+          pid?.trim() || null,
+          Boolean(featured),
+          status,
+          tagsValue,
+          meta_title?.trim() || null,
+          meta_description?.trim() || null,
+          meta_keywords?.trim() || null,
+          og_image_url?.trim() || null,
+          id
+        ]
 
-      // If image_url is provided, update product_image table
-      if (image_url && image_url.trim()) {
-        // Check if image exists for this product
-        const [existingImages] = await connection.execute(
-          'SELECT id FROM product_image WHERE product_product_id = ? AND is_main = 1',
+        [result] = await connection.execute(query, values)
+      } catch (seoError) {
+        // If SEO columns don't exist, use basic update without SEO fields
+        if (seoError.code === 'ER_BAD_FIELD_ERROR') {
+          query = `
+            UPDATE product SET 
+              name = ?, description = ?, category_id = ?, type_id = ?, brand_id = ?, model_id = ?,
+              price = ?, discount = ?, stock_quantity = ?, pid = ?, featured = ?, status = ?, tags = ?,
+              updated_at = NOW()
+            WHERE product_id = ?
+          `
+
+          values = [
+            name.trim(),
+            description?.trim() || null,
+            parseInt(category_id),
+            type_id ? parseInt(type_id) : null,
+            brand_id ? parseInt(brand_id) : null,
+            model_id ? parseInt(model_id) : null,
+            parseFloat(price) || 0,
+            parseFloat(discount) || 0,
+            parseInt(stock_quantity) || 0,
+            pid?.trim() || null,
+            Boolean(featured),
+            status,
+            tagsValue,
+            id
+          ]
+
+          [result] = await connection.execute(query, values)
+        } else {
+          throw seoError
+        }
+      }
+
+      // Handle images - support both single image_url and multiple images array
+      const imagesToInsert = imagesToCheck.length > 0 ? imagesToCheck : []
+      
+      // Update images: Delete all existing images and insert new ones
+      // Only update if new images are provided, otherwise keep existing
+      if (imagesToInsert.length > 0) {
+        // Delete all existing images for this product
+        await connection.execute(
+          'DELETE FROM product_image WHERE product_product_id = ?',
           [id]
         )
 
-        if (existingImages.length > 0) {
-          // Update existing image
-          await connection.execute(
-            'UPDATE product_image SET image_url = ? WHERE product_product_id = ? AND is_main = 1',
-            [image_url.trim(), id]
-          )
-        } else {
-          // Insert new image
-          await connection.execute(
-            'INSERT INTO product_image (product_product_id, image_url, is_main, uploaded_at) VALUES (?, ?, ?, NOW())',
-            [id, image_url.trim(), true]
-          )
+        // Insert new images
+        if (imagesToInsert.length > 0) {
+          const imageQuery = `
+            INSERT INTO product_image (product_product_id, image_url, is_main, uploaded_at)
+            VALUES (?, ?, ?, NOW())
+          `
+          // First image is marked as main
+          for (let i = 0; i < imagesToInsert.length; i++) {
+            const imageUrl = imagesToInsert[i]
+            
+            try {
+              await connection.execute(imageQuery, [id, imageUrl, i === 0])
+            } catch (imageError) {
+              connection.release()
+              throw imageError
+            }
+          }
         }
       }
 

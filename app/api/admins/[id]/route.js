@@ -1,3 +1,4 @@
+"use server";
 import { NextResponse } from 'next/server';
 import pool from '@/lib/database';
 
@@ -34,7 +35,10 @@ export async function PUT(request, { params }) {
     const { id } = params;
     try {
         const body = await request.json();
-        const { name, email, password, status, permissions, role, lastLogin } = body;
+        const { name, email, password, status, permissions, role } = body;
+        
+        // Explicitly ignore lastLogin - it should only be updated on successful login
+        // Removing lastLogin from the body to prevent manual updates
 
         if (!name || !email) {
             return NextResponse.json(
@@ -59,20 +63,21 @@ export async function PUT(request, { params }) {
             const roleValue = ROLE_MAPPING[role.trim()] || role.trim().toUpperCase().replace(/\s+/g, '_');
             paramsArr.push(roleValue);
         }
-        if (lastLogin === null) {
-            // allow clearing lastLogin
-            fields.push('lastLogin = NULL');
-        } else if (lastLogin) {
-            fields.push('lastLogin = ?');
-            paramsArr.push(new Date(lastLogin));
-        }
+        // Note: lastLogin is intentionally NOT updated here
+        // It should only be updated in the login route after successful authentication
+        
+        // Handle permissions - store as comma-separated string for VARCHAR columns
         if (Array.isArray(permissions) && permissions.length > 0) {
-            // Since permissions is an ENUM, we can only store ONE value
-            // Use the first selected permission
-            const firstPerm = permissions[0];
-            const permValue = PERMISSION_MAPPING[firstPerm] || firstPerm.toUpperCase();
+            // Store permissions as comma-separated string
+            const permsString = permissions.join(',');
+            const permsValue = permsString.slice(0, 250); // Limit to 250 chars
             fields.push('permissions = ?');
-            paramsArr.push(permValue);
+            paramsArr.push(permsValue);
+        } else if (typeof permissions === 'string' && permissions.trim()) {
+            // If it's a single string, store it directly
+            const permsValue = permissions.trim().slice(0, 250);
+            fields.push('permissions = ?');
+            paramsArr.push(permsValue);
         }
         if (password) {
             fields.push('password = ?');
@@ -91,18 +96,13 @@ export async function PUT(request, { params }) {
             const isBadField = err && err.code === 'ER_BAD_FIELD_ERROR';
             const isPermsTruncated = err && (err.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || err.code === 'ER_TRUNCATED_WRONG_VALUE' || err.code === 'WARN_DATA_TRUNCATED' || /Data truncated.*permissions/i.test(err.message || ''));
             if (isBadField || isPermsTruncated) {
-                // Map to your schema: stusta for status, lastlogin for lastLogin
+                // Map to your schema: stusta for status
                 const tryAlt = [];
                 const tryAltParams = [];
                 fields.forEach((f, idx) => {
                     if (f.trim() === 'status = ?') {
                         tryAlt.push('stusta = ?');
                         tryAltParams.push(paramsArr[idx]);
-                    } else if (f.trim() === 'lastLogin = ?') {
-                        tryAlt.push('lastlogin = ?');
-                        tryAltParams.push(paramsArr[idx]);
-                    } else if (f.trim() === 'lastLogin = NULL') {
-                        tryAlt.push('lastlogin = NULL');
                     } else {
                         tryAlt.push(f);
                         tryAltParams.push(paramsArr[idx]);
@@ -116,7 +116,7 @@ export async function PUT(request, { params }) {
                         WHERE id = ?
                     `, tryAltParams);
                 } catch (e2) {
-                    const filteredFields = fields.filter(f => !['status = ?', 'permissions = ?', 'role = ?', 'lastLogin = ?'].includes(f.trim()));
+                    const filteredFields = fields.filter(f => !['status = ?', 'permissions = ?', 'role = ?'].includes(f.trim()));
                     const filteredParams = [];
                     filteredFields.forEach(f => {
                         if (f.startsWith('fullname')) filteredParams.push(name);

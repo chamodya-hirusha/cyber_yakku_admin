@@ -90,20 +90,61 @@ export async function POST(request) {
         [email]
       );
 
+      // Check if admin exists and password matches
       if (!rows.length || rows[0].password !== password) {
+        connection.release();
         return NextResponse.json(
           { success: false, error: 'Invalid email or password' },
           { status: 401 }
         );
       }
-
-      // Update last login time
-      try {
-        await connection.execute(
-          'UPDATE admin SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?',
-          [rows[0].id]
+      
+      // Check if admin is active (only update lastLogin if admin is active)
+      const adminStatus = rows[0].status !== undefined ? rows[0].status : (rows[0].stusta !== undefined ? rows[0].stusta : 1);
+      const isActive = adminStatus === 1 || adminStatus === true;
+      
+      if (!isActive) {
+        connection.release();
+        return NextResponse.json(
+          { success: false, error: 'Your account is inactive. Please contact an administrator.' },
+          { status: 403 }
         );
+      }
+
+      // Only update lastLogin AFTER successful authentication
+      // Update last login time - detect the correct column name
+      try {
+        // First, detect which columns exist in the admin table
+        let availableColumns = {};
+        try {
+          const [columns] = await connection.execute(`
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'admin'
+          `);
+          columns.forEach(col => {
+            availableColumns[col.COLUMN_NAME.toLowerCase()] = col.COLUMN_NAME;
+          });
+        } catch (schemaErr) {
+          console.warn('Could not query schema for login update:', schemaErr.message);
+        }
+        
+        // Find the last login column name
+        const lastLoginColumn = availableColumns['lastlogin'] ||
+                               availableColumns['last_login'] ||
+                               availableColumns['lastlogindate'] ||
+                               availableColumns['lastlogintime'] ||
+                               'lastLogin'; // fallback to most common
+        
+        if (lastLoginColumn && availableColumns[lastLoginColumn.toLowerCase()]) {
+          await connection.execute(
+            `UPDATE admin SET ${lastLoginColumn} = CURRENT_TIMESTAMP WHERE id = ?`,
+            [rows[0].id]
+          );
+        }
       } catch (updateError) {
+        // Log error but don't fail login if lastLogin update fails
         console.warn('Could not update last login time:', updateError);
       }
 

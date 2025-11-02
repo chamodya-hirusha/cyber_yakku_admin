@@ -115,8 +115,20 @@ export default function AdminsPage() {
       const result = await response.json();
       if (result.success) {
         // The API now returns `joinDate` and `lastLogin` pre-formatted
-        setAdmins(result.data || []);
-        console.log('Admins loaded successfully:', result.data?.length || 0, 'admins');
+        const adminsData = result.data || [];
+        setAdmins(adminsData);
+        console.log('Admins loaded successfully:', adminsData.length, 'admins');
+        // Log first admin data for debugging
+        if (adminsData.length > 0) {
+          console.log('Sample admin data:', {
+            id: adminsData[0].id,
+            name: adminsData[0].name,
+            role: adminsData[0].role,
+            permissions: adminsData[0].permissions,
+            permissionsType: typeof adminsData[0].permissions,
+            permissionsLength: Array.isArray(adminsData[0].permissions) ? adminsData[0].permissions.length : 'N/A'
+          });
+        }
       } else {
         throw new Error(result.error || 'Failed to load administrators');
       }
@@ -131,10 +143,10 @@ export default function AdminsPage() {
 
   const filteredAdmins = admins.filter(admin => {
     const matchesSearch = admin.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          admin.email.toLowerCase().includes(searchTerm.toLowerCase())
+      admin.email.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus = filterStatus === "all" ||
-                         (filterStatus === "active" && admin.status === true) ||
-                         (filterStatus === "inactive" && admin.status === false)
+      (filterStatus === "active" && admin.status === true) ||
+      (filterStatus === "inactive" && admin.status === false)
     return matchesSearch && matchesStatus
   })
 
@@ -224,12 +236,11 @@ export default function AdminsPage() {
 
   const openEditDialog = (admin) => {
     setSelectedAdmin(admin)
-    // Convert display role back to database format for the form
     const roleValue = roleDisplayToValue[admin.role] || admin.role || 'SUPER_ADMIN';
     setFormData({
       name: admin.name,
       email: admin.email,
-      password: "", // Always clear password for edit form
+      password: "", 
       role: roleValue,
       permissions: admin.permissions || [], // Ensure permissions is an array
       status: admin.status === true || admin.status === "Active",
@@ -252,6 +263,14 @@ export default function AdminsPage() {
       status: true,
     })
   }
+
+  // Reset form when add dialog opens
+  React.useEffect(() => {
+    if (isAddDialogOpen) {
+      setTimeout(() => resetForm(), 0);
+    }
+  }, [isAddDialogOpen]);
+
 
   const togglePermission = (permission) => {
     setFormData(prev => ({
@@ -294,7 +313,10 @@ export default function AdminsPage() {
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
           <Button
-            onClick={() => setIsAddDialogOpen(true)}
+            onClick={() => {
+              setTimeout(() => resetForm(), 0);
+              setIsAddDialogOpen(true);
+            }}
             className="bg-gradient-primary hover:opacity-90"
           >
             <Plus className="mr-2 h-4 w-4" />
@@ -388,99 +410,142 @@ export default function AdminsPage() {
           </div>
 
           {/* Admins Table */}
-          <div className="space-y-4">
-            {filteredAdmins.map((admin) => (
-              <div key={admin.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center space-x-4">
-                  <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center">
-                    <Shield className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="font-medium">{admin.name}</p>
-                    <p className="text-sm text-muted-foreground">{admin.email}</p>
-                    <p className="text-xs text-muted-foreground">{admin.role}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-4">
-                  <div className="text-right">
-                    <div className="flex flex-wrap gap-1 mb-1">
-                      {(admin.permissions || []).map((perm) => (
-                        <span key={perm} className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
-                          {permissionLabels[perm] || perm}
+          <div className="rounded-md border">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Admin</th>
+                    <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Role</th>
+                    <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Permissions</th>
+                    <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status</th>
+                    <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Join Date</th>
+                    <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Last Login</th>
+                    <th className="h-12 px-4 text-center align-middle font-medium text-muted-foreground">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredAdmins.map((admin, index) => (
+                    <tr
+                      key={admin.id}
+                      className={`border-b transition-colors hover:bg-muted/50 ${index % 2 === 0 ? 'bg-background' : 'bg-muted/20'
+                        }`}
+                    >
+                      <td className="p-4 align-middle">
+                        <div className="flex items-center space-x-3">
+                          <div className="h-10 w-10 rounded-full bg-gradient-primary flex items-center justify-center flex-shrink-0">
+                            <Shield className="h-5 w-5 text-white" />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-sm">{admin.name}</span>
+                            <span className="text-xs text-muted-foreground">{admin.email}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <span className="text-sm font-medium">
+                          {admin.role && admin.role.trim() ? admin.role : 'N/A'}
                         </span>
-                      ))}
-                    </div>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <p>Join: {admin.joinDate || 'N/A'}</p>
-                      <p>Last login: {admin.lastLogin || 'Never'}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      admin.status === true || admin.status === "Active"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-gray-100 text-gray-800"
-                    }`}>
-                      {admin.status === true || admin.status === "Active" ? "Active" : "Inactive"}
-                    </span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => openEditDialog(admin)}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Edit Admin
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Key className="mr-2 h-4 w-4" />
-                          Reset Password
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Mail className="mr-2 h-4 w-4" />
-                          Send Email
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => openDeleteDialog(admin)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Remove Admin
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {admin.permissions && Array.isArray(admin.permissions) && admin.permissions.length > 0 ? (
+                            <>
+                              {admin.permissions.slice(0, 3).map((perm, idx) => (
+                                <span
+                                  key={perm || idx}
+                                  className="inline-flex items-center px-2 py-1 bg-primary/10 text-primary rounded-md text-xs font-medium"
+                                >
+                                  {permissionLabels[perm] || perm || 'Unknown'}
+                                </span>
+                              ))}
+                              {admin.permissions.length > 3 && (
+                                <span className="inline-flex items-center px-2 py-1 bg-muted text-muted-foreground rounded-md text-xs">
+                                  +{admin.permissions.length - 3} more
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">No permissions</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${admin.status === true || admin.status === "Active"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+                            : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300"
+                          }`}>
+                          {admin.status === true || admin.status === "Active" ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <span className="text-sm text-muted-foreground">
+                          {admin.joinDate && admin.joinDate !== 'N/A' && admin.joinDate !== ''
+                            ? admin.joinDate
+                            : <span className="text-muted-foreground/60 italic">N/A</span>}
+                        </span>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <span className="text-sm text-muted-foreground">
+                          {admin.lastLogin && admin.lastLogin !== 'Never' && admin.lastLogin !== ''
+                            ? admin.lastLogin
+                            : <span className="text-muted-foreground/60 italic">Never</span>}
+                        </span>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <div className="flex justify-center">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openEditDialog(admin)}>
+                                <Edit className="mr-2 h-4 w-4" />
+                                Edit Admin
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Key className="mr-2 h-4 w-4" />
+                                Reset Password
+                              </DropdownMenuItem>
+                              <DropdownMenuItem>
+                                <Mail className="mr-2 h-4 w-4" />
+                                Send Email
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => openDeleteDialog(admin)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Remove Admin
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filteredAdmins.length === 0 && (
+              <div className="p-8 text-center">
+                <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground">
+                  {admins.length === 0
+                    ? 'No administrators found. Click "Add Admin" to create one.'
+                    : 'No administrators found matching your criteria.'}
+                </p>
               </div>
-            ))}
+            )}
           </div>
 
-          {filteredAdmins.length === 0 && !loading && (
-            <div className="text-center py-8">
-              <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">
-                {admins.length === 0 
-                  ? 'No administrators found. Click "Add Admin" to create one.' 
-                  : 'No administrators found matching your criteria.'}
-              </p>
-              {admins.length === 0 && (
-                <Button
-                  onClick={() => setIsAddDialogOpen(true)}
-                  className="mt-4 bg-gradient-primary hover:opacity-90"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Your First Admin
-                </Button>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
       {/* Add Admin Dialog */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen} >
         <DialogContent className="bg-popover border-0 shadow-elegant max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-2xl">Add New Administrator</DialogTitle>
@@ -495,6 +560,7 @@ export default function AdminsPage() {
                 id="name"
                 placeholder="John Doe"
                 value={formData.name}
+
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 className="border-border/50 focus:border-primary"
               />
@@ -536,7 +602,7 @@ export default function AdminsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
                 <Select value={formData.status ? "active" : "inactive"} onValueChange={(value) => setFormData({ ...formData, status: value === "active" })}>
@@ -561,11 +627,10 @@ export default function AdminsPage() {
                       key={permission}
                       type="button"
                       onClick={() => togglePermission(permission)}
-                      className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                        formData.permissions.includes(permission)
+                      className={`p-3 rounded-lg border text-sm font-medium transition-all ${formData.permissions.includes(permission)
                           ? "bg-primary text-primary-foreground border-primary shadow-sm"
                           : "bg-card border-border/50 hover:border-primary/50"
-                      }`}
+                        }`}
                     >
                       {permissionLabels[permission]}
                     </button>
@@ -667,11 +732,10 @@ export default function AdminsPage() {
                     key={permission}
                     type="button"
                     onClick={() => togglePermission(permission)}
-                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                      (formData.permissions || []).includes(permission)
+                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${(formData.permissions || []).includes(permission)
                         ? "bg-primary text-primary-foreground border-primary shadow-sm"
                         : "bg-card border-border/50 hover:border-primary/50"
-                    }`}
+                      }`}
                   >
                     {permissionLabels[permission]}
                   </button>

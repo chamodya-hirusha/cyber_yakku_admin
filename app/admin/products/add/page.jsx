@@ -19,7 +19,10 @@ import {
   Hash,
   Image as ImageIcon,
   Tag,
+  Star,
+  Search,
 } from "lucide-react"
+import { ImageCarousel } from "@/components/admin/ImageCarousel"
 
 const statusOptions = [
   { value: "draft", label: "Draft", color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300" },
@@ -35,6 +38,7 @@ export default function AddProductPage() {
   const [loadingCategories, setLoadingCategories] = React.useState(true)
   const [selectedCategory, setSelectedCategory] = React.useState("")
   const [imagePreview, setImagePreview] = React.useState("")
+  const [productImages, setProductImages] = React.useState([])
   const [tags, setTags] = React.useState([])
   const [newTag, setNewTag] = React.useState("")
   
@@ -50,6 +54,9 @@ export default function AddProductPage() {
   const [selectedDetailCategory, setSelectedDetailCategory] = React.useState("")
   const [selectedType, setSelectedType] = React.useState("")
   const [selectedBrand, setSelectedBrand] = React.useState("")
+  const [selectedFile, setSelectedFile] = React.useState(null)
+  const [uploading, setUploading] = React.useState(false)
+  const fileInputRef = React.useRef(null)
 
   const {
     register,
@@ -69,6 +76,10 @@ export default function AddProductPage() {
       featured: false,
       pid: "",
       image_url: "",
+      meta_title: "",
+      meta_description: "",
+      meta_keywords: "",
+      og_image_url: "",
     },
   })
 
@@ -223,7 +234,165 @@ export default function AddProductPage() {
     setImagePreview(url)
   }
 
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      handleMultipleFileUpload(files)
+    }
+  }
+
+  const handleMultipleFileUpload = async (files) => {
+    const validFiles = []
+    
+    // Validate all files
+    for (const file of files) {
+      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+      
+      if (!allowedTypes.includes(file.type)) {
+        alert(`Invalid file type for ${file.name}. Only images (JPEG, PNG, GIF, WebP) are allowed.`)
+        continue
+      }
+      
+      validFiles.push(file)
+    }
+
+    if (validFiles.length === 0) return
+
+    setUploading(true)
+    try {
+      // Upload all files in parallel
+      const uploadPromises = validFiles.map(file => {
+        const formData = new FormData()
+        formData.append('file', file)
+        return fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        }).then(res => res.json())
+      })
+
+      const results = await Promise.all(uploadPromises)
+      const successfulUploads = results.filter(r => r.success)
+
+      if (successfulUploads.length > 0) {
+        const newImageUrls = successfulUploads.map(r => r.data.url)
+        setProductImages(prev => [...prev, ...newImageUrls])
+        
+        // Set first image as preview if no preview exists
+        if (!imagePreview && newImageUrls.length > 0) {
+          setImagePreview(newImageUrls[0])
+          setValue("image_url", newImageUrls[0])
+        }
+        
+        alert(`${successfulUploads.length} image(s) uploaded successfully!`)
+      } else {
+        alert('Failed to upload images')
+      }
+    } catch (error) {
+      console.error('Error uploading files:', error)
+      alert('An error occurred while uploading the images')
+    } finally {
+      setUploading(false)
+      setSelectedFile(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleFileUpload = async (file) => {
+    if (!file) return
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+    if (!allowedTypes.includes(file.type)) {
+      alert('Invalid file type. Only images (JPEG, PNG, GIF, WebP) are allowed.')
+      return
+    }
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        setImagePreview(result.data.url)
+        setValue("image_url", result.data.url)
+        alert('Image uploaded successfully!')
+      } else {
+        alert(result.error || 'Failed to upload image')
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error)
+      alert('An error occurred while uploading the image')
+    } finally {
+      setUploading(false)
+      setSelectedFile(null)
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleDrop = (e) => {
+    e.preventDefault()
+    const files = Array.from(e.dataTransfer.files || [])
+    if (files.length > 0) {
+      handleMultipleFileUpload(files)
+    }
+  }
+
+  const removeImage = (indexToRemove) => {
+    // Warn if removing the last image
+    if (productImages.length === 1) {
+      if (!confirm('This is the last image. Removing it will prevent you from creating the product. Are you sure you want to remove it?')) {
+        return
+      }
+    }
+    
+    const updatedImages = productImages.filter((_, index) => index !== indexToRemove)
+    setProductImages(updatedImages)
+    
+    // If removed image was the preview, set new preview
+    if (indexToRemove === 0 && updatedImages.length > 0) {
+      setImagePreview(updatedImages[0])
+      setValue("image_url", updatedImages[0])
+    } else if (updatedImages.length === 0) {
+      setImagePreview("")
+      setValue("image_url", "")
+    }
+  }
+
+  const setMainImage = (index) => {
+    if (productImages[index]) {
+      setImagePreview(productImages[index])
+      setValue("image_url", productImages[index])
+      // Reorder array to put main image first
+      const reordered = [productImages[index], ...productImages.filter((_, i) => i !== index)]
+      setProductImages(reordered)
+    }
+  }
+
+  const handleDragOver = (e) => {
+    e.preventDefault()
+  }
+
   const onSubmit = async (data) => {
+    // Validate that at least one image is provided
+    const hasImages = productImages.length > 0 || (imagePreview && imagePreview.trim())
+    if (!hasImages) {
+      alert('Please add at least one product image before creating the product.')
+      setIsLoading(false)
+      return
+    }
+
     setIsLoading(true)
     try {
       const productData = {
@@ -239,9 +408,24 @@ export default function AddProductPage() {
         pid: data.pid?.trim() || null,
         featured: Boolean(data.featured),
         image_url: imagePreview || data.image_url || null,
+        images: productImages.length > 0 
+          ? productImages 
+          : (imagePreview && imagePreview.trim() ? [imagePreview] : []),
         status: data.status || 'draft',
-        tags: tags || []
+        tags: tags || [],
+        meta_title: data.meta_title?.trim() || null,
+        meta_description: data.meta_description?.trim() || null,
+        meta_keywords: data.meta_keywords?.trim() || null,
+        og_image_url: data.og_image_url?.trim() || null,
       }
+
+      // Debug log to check what's being sent
+      console.log('Product data being sent:', {
+        ...productData,
+        images: productData.images,
+        imagesCount: productData.images?.length || 0,
+        hasImageUrl: !!productData.image_url
+      })
 
       const response = await fetch('/api/products', {
         method: 'POST',
@@ -704,7 +888,82 @@ export default function AddProductPage() {
                   )}
                 </div>
 
-                {imagePreview && (
+                {/* Product Images Carousel */}
+                {productImages.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">Product Images ({productImages.length})</label>
+                      <div className="flex gap-2">
+                        {productImages.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const currentMainIndex = 0
+                              const nextIndex = currentMainIndex + 1 < productImages.length ? currentMainIndex + 1 : 0
+                              setMainImage(nextIndex)
+                            }}
+                          >
+                            Set Next as Main
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <ImageCarousel 
+                      images={productImages}
+                      className="w-full"
+                      showControls={true}
+                    />
+                    
+                    {/* Thumbnail Grid with Actions */}
+                    <div className="grid grid-cols-4 md:grid-cols-6 gap-2">
+                      {productImages.map((imageUrl, index) => (
+                        <div key={index} className="relative group">
+                          <div className={`aspect-square border-2 rounded-lg overflow-hidden bg-muted ${
+                            index === 0 ? 'border-primary' : 'border-transparent'
+                          }`}>
+                            <img
+                              src={imageUrl}
+                              alt={`Product image ${index + 1}`}
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                e.target.style.display = 'none'
+                              }}
+                            />
+                          </div>
+                          {index === 0 && (
+                            <div className="absolute top-0 left-0 bg-primary text-primary-foreground text-xs px-1 py-0.5 rounded-br">
+                              Main
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => removeImage(index)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="icon"
+                            className="absolute bottom-1 left-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => setMainImage(index)}
+                            disabled={index === 0}
+                          >
+                            <Star className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Single Image Preview (fallback for URL input) */}
+                {imagePreview && productImages.length === 0 && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Preview</label>
                     <div className="border rounded-lg p-4">
@@ -720,13 +979,35 @@ export default function AddProductPage() {
                   </div>
                 )}
 
-                <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
+                <div 
+                  className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center cursor-pointer hover:border-primary transition-colors"
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
                   <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                   <p className="text-sm text-muted-foreground mb-2">
-                    Or drag and drop an image here
+                    {uploading ? 'Uploading...' : 'Drag and drop images here or click to browse (Multiple images allowed)'}
                   </p>
-                  <Button type="button" variant="outline" size="sm">
-                    Choose File
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="sm"
+                    disabled={uploading}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      fileInputRef.current?.click()
+                    }}
+                  >
+                    {uploading ? 'Uploading...' : 'Choose Files'}
                   </Button>
                 </div>
               </CardContent>
@@ -776,6 +1057,77 @@ export default function AddProductPage() {
                 )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Search className="h-5 w-5" />
+                  <span>SEO Settings</span>
+                </CardTitle>
+                <CardDescription>
+                  Optimize your product for search engines and social media
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <label htmlFor="meta_title" className="text-sm font-medium">
+                    Meta Title
+                  </label>
+                  <Input
+                    id="meta_title"
+                    placeholder="Enter meta title (recommended: 50-60 characters)"
+                    {...register("meta_title")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {watch("meta_title")?.length || 0}/60 characters
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="meta_description" className="text-sm font-medium">
+                    Meta Description
+                  </label>
+                  <textarea
+                    id="meta_description"
+                    placeholder="Enter meta description (recommended: 150-160 characters)"
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    {...register("meta_description")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {watch("meta_description")?.length || 0}/160 characters
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="meta_keywords" className="text-sm font-medium">
+                    Meta Keywords
+                  </label>
+                  <Input
+                    id="meta_keywords"
+                    placeholder="Enter keywords separated by commas"
+                    {...register("meta_keywords")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Separate keywords with commas (e.g., gaming, accessories, premium)
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="og_image_url" className="text-sm font-medium">
+                    Open Graph Image URL
+                  </label>
+                  <Input
+                    id="og_image_url"
+                    type="url"
+                    placeholder="https://example.com/og-image.png"
+                    {...register("og_image_url")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Custom image for social media sharing (optional). Recommended size: 1200x630px
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <div className="space-y-6">
@@ -785,17 +1137,26 @@ export default function AddProductPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
-                    {imagePreview ? (
+                  {/* Product Images Carousel Preview */}
+                  {productImages.length > 0 ? (
+                    <ImageCarousel 
+                      images={productImages}
+                      className="w-full"
+                      showControls={true}
+                    />
+                  ) : imagePreview ? (
+                    <div className="aspect-square bg-muted rounded-lg overflow-hidden">
                       <img
                         src={imagePreview}
                         alt="Product preview"
-                        className="h-full w-full object-cover rounded-lg"
+                        className="h-full w-full object-cover"
                       />
-                    ) : (
+                    </div>
+                  ) : (
+                    <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
                       <Package className="h-12 w-12 text-muted-foreground" />
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <h3 className="font-semibold">
                       {watch("name") || "Product Name"}

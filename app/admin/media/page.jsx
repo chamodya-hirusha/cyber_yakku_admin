@@ -161,7 +161,6 @@ const HomeContentPage = () => {
     { id: 'hero', label: 'Hero Sections', icon: Image },
     { id: 'cards', label: 'Content Cards', icon: FileText },
     { id: 'carousels', label: 'Product Carousels', icon: ShoppingCart },
-    { id: 'layout', label: 'Page Layout', icon: Layout },
     { id:'membership', label: 'Membership Section', icon: Type}
 
   ]
@@ -447,64 +446,7 @@ const HomeContentPage = () => {
     </div>
   )
 
-  const renderPageLayout = () => (
-    <div className="space-y-4">
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <h3 className="font-semibold mb-2">Drag and drop to reorder sections</h3>
-        <p className="text-sm text-muted-foreground">
-          The order below determines how sections appear on the home page
-        </p>
-      </div>
-      {homeLayout.map((section, index) => (
-        <Card key={section.id}>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <div className="text-sm font-mono bg-gray-100 px-2 py-1 rounded">
-                  {index + 1}
-                </div>
-                <div className="flex items-center space-x-2">
-                  {section.type === 'hero' && <Image className="h-4 w-4" />}
-                  {section.type === 'content_cards' && <FileText className="h-4 w-4" />}
-                  {section.type === 'product_carousel' && <ShoppingCart className="h-4 w-4" />}
-                  {section.type === 'membership' && <Type className="h-4 w-4" />}
-                  <span className="font-medium capitalize">
-                    {section.type.replace('_', ' ')}
-                  </span>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded ${
-                  section.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
-                  {section.active ? 'Active' : 'Inactive'}
-                </span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleReorder(section.id, 'up')}
-                  disabled={index === 0}
-                >
-                  <ArrowUp className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleReorder(section.id, 'down')}
-                  disabled={index === homeLayout.length - 1}
-                >
-                  <ArrowDown className="h-3 w-3" />
-                </Button>
-                <Button variant="outline" size="sm">
-                  <Settings className="h-3 w-3" />
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  )
+ 
 
   return (
     <div className="space-y-6">

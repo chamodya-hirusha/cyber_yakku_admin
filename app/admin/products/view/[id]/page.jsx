@@ -15,6 +15,7 @@ import {
   Calendar,
   Star,
 } from "lucide-react"
+import { ImageCarousel } from "@/components/admin/ImageCarousel"
 
 export default function ViewProductPage({ params }) {
   const router = useRouter()
@@ -22,6 +23,7 @@ export default function ViewProductPage({ params }) {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState(null)
   const [resolvedId, setResolvedId] = React.useState(null)
+  const [productImages, setProductImages] = React.useState([])
 
   // Resolve params in Next.js App Router
   React.useEffect(() => {
@@ -50,6 +52,25 @@ export default function ViewProductPage({ params }) {
         
         if (result.success) {
           setProduct(result.data)
+          
+          // Fetch all product images
+          try {
+            const imagesResponse = await fetch(`/api/products/${resolvedId}/images`)
+            const imagesResult = await imagesResponse.json()
+            if (imagesResult.success && imagesResult.data) {
+              const imageUrls = imagesResult.data.map(img => img.image_url)
+              setProductImages(imageUrls)
+            } else if (result.data.image_url) {
+              // Fallback to single image_url if images endpoint fails
+              setProductImages([result.data.image_url])
+            }
+          } catch (err) {
+            console.error('Error fetching product images:', err)
+            // Fallback to single image_url
+            if (result.data.image_url) {
+              setProductImages([result.data.image_url])
+            }
+          }
         } else {
           setError(result.error || 'Failed to fetch product')
         }
@@ -299,17 +320,19 @@ export default function ViewProductPage({ params }) {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Image */}
-          {product.image_url && (
+          {/* Image Carousel */}
+          {productImages.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Product Image</CardTitle>
+                <CardTitle>Product Images</CardTitle>
+                <CardDescription>
+                  {productImages.length} image{productImages.length !== 1 ? 's' : ''}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <img
-                  src={product.image_url}
-                  alt={product.name}
-                  className="w-full h-48 object-cover rounded-lg"
+                <ImageCarousel 
+                  images={productImages} 
+                  className="w-full"
                 />
               </CardContent>
             </Card>
