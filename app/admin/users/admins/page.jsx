@@ -19,6 +19,7 @@ import {
   Shield,
   Key,
   X,
+  RefreshCw,
 } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
@@ -47,26 +48,36 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+// Update role options to match database enum values
 const roleOptions = [
-  "Super Admin",
-  "Content Manager",
-  "Product Manager",
-  "Marketing Manager",
-  "Support Manager",
-]
+  { label: "Super Admin", value: "SUPER_ADMIN" },
+  { label: "Content Manager", value: "CONTENT_MANAGER" },
+  { label: "Product Manager", value: "PRODUCT_MANAGER" },
+  { label: "Marketing Manager", value: "MARKETING_MANAGER" },
+];
 
+// Update permission labels to match database enum values
 const permissionLabels = {
-  all: "Full Access",
-  content: "Content Management",
-  media: "Media Library",
-  products: "Product Management",
-  orders: "Order Management",
-  users: "User Management",
-  analytics: "Analytics",
-  settings: "System Settings",
-}
+  FULL_ACCESS: "Full Access",
+  CONTENT_MANAGEMENT: "Content Management",
+  MEDIA_LIBRARY: "Media Library",
+  PRODUCT_MANAGEMENT: "Product Management",
+  ORDER_MANAGEMENT: "Order Management",
+  USER_MANAGEMENT: "User Management",
+  ANALYTICS: "Analytics",
+  SYSTEM_SETTINGS: "System Settings",
+};
 
-const permissionOptions = Object.keys(permissionLabels).filter(p => p !== "all")
+// Update permission options to include FULL_ACCESS
+const permissionOptions = Object.keys(permissionLabels);
+
+// Map display role format back to database format for forms
+const roleDisplayToValue = {
+  'Super Admin': 'SUPER_ADMIN',
+  'Content Manager': 'CONTENT_MANAGER',
+  'Product Manager': 'PRODUCT_MANAGER',
+  'Marketing Manager': 'MARKETING_MANAGER',
+};
 
 export default function AdminsPage() {
   const [admins, setAdmins] = React.useState([])
@@ -78,6 +89,7 @@ export default function AdminsPage() {
   const [selectedAdmin, setSelectedAdmin] = React.useState(null)
   const [adminToDelete, setAdminToDelete] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
+  const [refreshing, setRefreshing] = React.useState(false)
 
   const [formData, setFormData] = React.useState({
     name: "",
@@ -85,20 +97,26 @@ export default function AdminsPage() {
     password: "",
     role: "",
     permissions: [],
+    status: true,
   })
 
   React.useEffect(() => {
     loadAdmins()
   }, [])
 
-  const loadAdmins = async () => {
-    setLoading(true);
+  const loadAdmins = async (showRefreshing = false) => {
+    if (showRefreshing) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const response = await fetch('/api/admins');
       const result = await response.json();
       if (result.success) {
         // The API now returns `joinDate` and `lastLogin` pre-formatted
-        setAdmins(result.data);
+        setAdmins(result.data || []);
+        console.log('Admins loaded successfully:', result.data?.length || 0, 'admins');
       } else {
         throw new Error(result.error || 'Failed to load administrators');
       }
@@ -107,13 +125,16 @@ export default function AdminsPage() {
       alert(error.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   const filteredAdmins = admins.filter(admin => {
     const matchesSearch = admin.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           admin.email.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = filterStatus === "all" || admin.status.toLowerCase() === filterStatus
+    const matchesStatus = filterStatus === "all" ||
+                         (filterStatus === "active" && admin.status === true) ||
+                         (filterStatus === "inactive" && admin.status === false)
     return matchesSearch && matchesStatus
   })
 
@@ -203,12 +224,15 @@ export default function AdminsPage() {
 
   const openEditDialog = (admin) => {
     setSelectedAdmin(admin)
+    // Convert display role back to database format for the form
+    const roleValue = roleDisplayToValue[admin.role] || admin.role || 'SUPER_ADMIN';
     setFormData({
       name: admin.name,
       email: admin.email,
       password: "", // Always clear password for edit form
-      role: admin.role,
+      role: roleValue,
       permissions: admin.permissions || [], // Ensure permissions is an array
+      status: admin.status === true || admin.status === "Active",
     })
     setIsEditDialogOpen(true)
   }
@@ -225,6 +249,7 @@ export default function AdminsPage() {
       password: "",
       role: "",
       permissions: [],
+      status: true,
     })
   }
 
@@ -258,13 +283,24 @@ export default function AdminsPage() {
             Manage admin users and their permissions.
           </p>
         </div>
-        <Button
-          onClick={() => setIsAddDialogOpen(true)}
-          className="bg-gradient-primary hover:opacity-90"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Add Admin
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => loadAdmins(true)}
+            variant="outline"
+            disabled={refreshing || loading}
+            className="hover:bg-accent"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </Button>
+          <Button
+            onClick={() => setIsAddDialogOpen(true)}
+            className="bg-gradient-primary hover:opacity-90"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Admin
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -288,7 +324,7 @@ export default function AdminsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {admins.filter(a => a.status === "Active").length}
+              {admins.filter(a => a.status === true || a.status === "Active").length}
             </div>
             <p className="text-xs text-muted-foreground">
               Currently active
@@ -374,17 +410,18 @@ export default function AdminsPage() {
                         </span>
                       ))}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Last login: {admin.lastLogin}
-                    </p>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <p>Join: {admin.joinDate || 'N/A'}</p>
+                      <p>Last login: {admin.lastLogin || 'Never'}</p>
+                    </div>
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className={`px-2 py-1 rounded-full text-xs ${
-                      admin.status === "Active"
+                      admin.status === true || admin.status === "Active"
                         ? "bg-green-100 text-green-800"
                         : "bg-gray-100 text-gray-800"
                     }`}>
-                      {admin.status}
+                      {admin.status === true || admin.status === "Active" ? "Active" : "Inactive"}
                     </span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -420,10 +457,23 @@ export default function AdminsPage() {
             ))}
           </div>
 
-          {filteredAdmins.length === 0 && (
+          {filteredAdmins.length === 0 && !loading && (
             <div className="text-center py-8">
               <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">No administrators found matching your criteria.</p>
+              <p className="text-muted-foreground">
+                {admins.length === 0 
+                  ? 'No administrators found. Click "Add Admin" to create one.' 
+                  : 'No administrators found matching your criteria.'}
+              </p>
+              {admins.length === 0 && (
+                <Button
+                  onClick={() => setIsAddDialogOpen(true)}
+                  className="mt-4 bg-gradient-primary hover:opacity-90"
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Your First Admin
+                </Button>
+              )}
             </div>
           )}
         </CardContent>
@@ -440,7 +490,7 @@ export default function AdminsPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Full Name *</Label>
+              <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
                 placeholder="John Doe"
@@ -450,7 +500,7 @@ export default function AdminsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email *</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -461,7 +511,7 @@ export default function AdminsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password *</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -480,30 +530,47 @@ export default function AdminsPage() {
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border z-50">
                   {roleOptions.map((role) => (
-                    <SelectItem key={role} value={role} className="focus:bg-primary/10">
-                      {role}
+                    <SelectItem key={role.value} value={role.value} className="focus:bg-primary/10">
+                      {role.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Permissions *</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {permissionOptions.map((permission) => (
-                  <button
-                    key={permission}
-                    type="button"
-                    onClick={() => togglePermission(permission)}
-                    className={`p-3 rounded-lg border text-sm font-medium transition-all ${
-                      formData.permissions.includes(permission)
-                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                        : "bg-card border-border/50 hover:border-primary/50"
-                    }`}
-                  >
-                    {permissionLabels[permission]}
-                  </button>
-                ))}
+              
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select value={formData.status ? "active" : "inactive"} onValueChange={(value) => setFormData({ ...formData, status: value === "active" })}>
+                  <SelectTrigger className="border-border/50 focus:border-primary bg-background">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border z-50">
+                    <SelectItem value="active" className="focus:bg-primary/10">
+                      Active
+                    </SelectItem>
+                    <SelectItem value="inactive" className="focus:bg-primary/10">
+                      Inactive
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Permissions *</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {permissionOptions.map((permission) => (
+                    <button
+                      key={permission}
+                      type="button"
+                      onClick={() => togglePermission(permission)}
+                      className={`p-3 rounded-lg border text-sm font-medium transition-all ${
+                        formData.permissions.includes(permission)
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                          : "bg-card border-border/50 hover:border-primary/50"
+                      }`}
+                    >
+                      {permissionLabels[permission]}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -569,10 +636,26 @@ export default function AdminsPage() {
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border z-50">
                   {roleOptions.map((role) => (
-                    <SelectItem key={role} value={role} className="focus:bg-primary/10">
-                      {role}
+                    <SelectItem key={role.value} value={role.value} className="focus:bg-primary/10">
+                      {role.label}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-status">Status *</Label>
+              <Select value={formData.status ? "active" : "inactive"} onValueChange={(value) => setFormData({ ...formData, status: value === "active" })}>
+                <SelectTrigger className="border-border/50 focus:border-primary bg-background">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border z-50">
+                  <SelectItem value="active" className="focus:bg-primary/10">
+                    Active
+                  </SelectItem>
+                  <SelectItem value="inactive" className="focus:bg-primary/10">
+                    Inactive
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

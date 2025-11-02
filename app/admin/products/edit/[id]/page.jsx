@@ -28,11 +28,15 @@ const statusOptions = [
   { value: "out_of_stock", label: "Out of Stock", color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300" },
 ]
 
-export default function AddProductPage() {
+export default function EditProductPage({ params }) {
   const router = useRouter()
   const [isLoading, setIsLoading] = React.useState(false)
+  const [productLoading, setProductLoading] = React.useState(true)
+  const [product, setProduct] = React.useState(null)
+  const [error, setError] = React.useState(null)
+  const [resolvedId, setResolvedId] = React.useState(null)
+  
   const [categories, setCategories] = React.useState([])
-  const [loadingCategories, setLoadingCategories] = React.useState(true)
   const [selectedCategory, setSelectedCategory] = React.useState("")
   const [imagePreview, setImagePreview] = React.useState("")
   const [tags, setTags] = React.useState([])
@@ -75,27 +79,92 @@ export default function AddProductPage() {
   const watchedPrice = watch("price")
   const watchedDiscount = watch("discount")
 
+  // Resolve params in Next.js App Router
+  React.useEffect(() => {
+    const resolveParams = async () => {
+      try {
+        const resolvedParams = await params
+        setResolvedId(resolvedParams.id)
+      } catch (err) {
+        console.error('Error resolving params:', err)
+        setError('Invalid product ID')
+        setProductLoading(false)
+      }
+    }
+    
+    resolveParams()
+  }, [params])
+
+  // Load existing product
+  React.useEffect(() => {
+    if (!resolvedId) return
+    
+    const fetchProduct = async () => {
+      try {
+        setProductLoading(true)
+        const response = await fetch(`/api/products/${resolvedId}`)
+        const result = await response.json()
+        
+        if (result.success) {
+          const productData = result.data
+          setProduct(productData)
+          
+          // Populate form with existing data
+          setValue("name", productData.name || "")
+          setValue("description", productData.description || "")
+          setValue("price", parseFloat(productData.price) || 0)
+          setValue("discount", parseFloat(productData.discount) || 0)
+          setValue("stock_quantity", parseInt(productData.stock_quantity) || 0)
+          setValue("status", productData.status || "draft")
+          setValue("featured", Boolean(productData.featured))
+          setValue("pid", productData.pid || "")
+          setValue("image_url", productData.image_url || "")
+          
+          setImagePreview(productData.image_url || "")
+          
+          // Set tags
+          if (productData.tags) {
+            try {
+              const parsedTags = Array.isArray(productData.tags)
+                ? productData.tags
+                : JSON.parse(productData.tags)
+              setTags(parsedTags)
+            } catch {
+              setTags([])
+            }
+          }
+          
+          // Set category
+          if (productData.category_id) {
+            setSelectedCategory(productData.category_id.toString())
+          }
+          
+        } else {
+          setError(result.error || 'Failed to fetch product')
+        }
+      } catch (err) {
+        console.error('Error fetching product:', err)
+        setError('An error occurred while fetching the product')
+      } finally {
+        setProductLoading(false)
+      }
+    }
+
+    fetchProduct()
+  }, [resolvedId, setValue])
+
   // Fetch categories on component mount
   React.useEffect(() => {
     const fetchCategories = async () => {
-      setLoadingCategories(true)
       try {
         const response = await fetch('/api/categories')
         const result = await response.json()
         
         if (result.success) {
           setCategories(result.data || [])
-          // Set first category as default if available
-          if (result.data && result.data.length > 0) {
-            setSelectedCategory(result.data[0].id.toString())
-          }
-        } else {
-          console.error('Failed to fetch categories:', result.error)
         }
       } catch (error) {
         console.error('Error fetching categories:', error)
-      } finally {
-        setLoadingCategories(false)
       }
     }
 
@@ -203,6 +272,15 @@ export default function AddProductPage() {
     setValue("brandId", "")
   }, [selectedCategory, setValue, categories])
 
+  // Update selections when product data is loaded
+  React.useEffect(() => {
+    if (product) {
+      if (product.brand_id) setSelectedBrand(product.brand_id.toString())
+      if (product.model_id) setSelectedModel(product.model_id.toString())
+      if (product.type_id) setSelectedType(product.type_id.toString())
+    }
+  }, [product])
+
   const addTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
       setTags([...tags, newTag.trim()])
@@ -224,6 +302,12 @@ export default function AddProductPage() {
   }
 
   const onSubmit = async (data) => {
+    if (!resolvedId) {
+      alert('Product ID not resolved')
+      setIsLoading(false)
+      return
+    }
+    
     setIsLoading(true)
     try {
       const productData = {
@@ -243,8 +327,8 @@ export default function AddProductPage() {
         tags: tags || []
       }
 
-      const response = await fetch('/api/products', {
-        method: 'POST',
+      const response = await fetch(`/api/products/${resolvedId}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -254,14 +338,14 @@ export default function AddProductPage() {
       const result = await response.json()
 
       if (result.success) {
-        alert('Product created successfully!')
+        alert('Product updated successfully!')
         router.push("/admin/products")
       } else {
-        alert(result.error || 'Failed to create product')
+        alert(result.error || 'Failed to update product')
       }
     } catch (error) {
-      console.error("Error creating product:", error)
-      alert('An error occurred while creating the product')
+      console.error("Error updating product:", error)
+      alert('An error occurred while updating the product')
     } finally {
       setIsLoading(false)
     }
@@ -272,6 +356,58 @@ export default function AddProductPage() {
       return (watchedPrice * (1 - watchedDiscount / 100)).toFixed(2)
     }
     return 0
+  }
+
+  // Loading state
+  if (productLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => router.back()}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Package className="h-8 w-8 animate-pulse mb-4" />
+            <p className="text-muted-foreground">Loading product...</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error || !product) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => router.back()}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Package className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Product Not Found</h3>
+            <p className="text-muted-foreground text-center mb-4">
+              {error || 'The product you are trying to edit does not exist.'}
+            </p>
+            <Button onClick={() => router.push('/admin/products')}>
+              Back to Products
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -286,9 +422,9 @@ export default function AddProductPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Create Product</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Edit Product</h1>
             <p className="text-muted-foreground">
-              Add a new product to your catalog
+              Update product information
             </p>
           </div>
         </div>
@@ -305,7 +441,7 @@ export default function AddProductPage() {
             className="bg-gradient-primary hover:opacity-90"
           >
             <Save className="mr-2 h-4 w-4" />
-            {isLoading ? "Creating..." : "Create Product"}
+            {isLoading ? "Updating..." : "Update Product"}
           </Button>
         </div>
       </div>
@@ -320,7 +456,7 @@ export default function AddProductPage() {
                   <span>Basic Information</span>
                 </CardTitle>
                 <CardDescription>
-                  Enter the basic details of your product
+                  Update the basic details of your product
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -357,11 +493,7 @@ export default function AddProductPage() {
 
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Main Category *</label>
-                  {loadingCategories ? (
-                    <div className="text-center py-4 text-muted-foreground">
-                      Loading categories...
-                    </div>
-                  ) : categories.length === 0 ? (
+                  {categories.length === 0 ? (
                     <div className="text-center py-4 text-muted-foreground">
                       No categories available. Please create a category first.
                     </div>
@@ -409,7 +541,7 @@ export default function AddProductPage() {
                   <span>Product Details</span>
                 </CardTitle>
                 <CardDescription>
-                  Select brand, model, and type for vehicle/weapon/skin categories, or type for currency categories
+                  Update brand, model, and type for vehicle/weapon/skin categories, or type for currency categories
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -560,7 +692,7 @@ export default function AddProductPage() {
                   <span>Pricing</span>
                 </CardTitle>
                 <CardDescription>
-                  Set the price and discount for your product
+                  Update the price and discount for your product
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -684,7 +816,7 @@ export default function AddProductPage() {
                   <span>Media</span>
                 </CardTitle>
                 <CardDescription>
-                  Add product images and media
+                  Update product images and media
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -739,7 +871,7 @@ export default function AddProductPage() {
                   <span>Tags</span>
                 </CardTitle>
                 <CardDescription>
-                  Add tags to help customers find your product
+                  Update tags to help customers find your product
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -835,7 +967,7 @@ export default function AddProductPage() {
               <CardContent className="space-y-2">
                 <Button variant="outline" className="w-full justify-start">
                   <Save className="mr-2 h-4 w-4" />
-                  Save as Draft
+                  Save Draft
                 </Button>
                 <Button variant="outline" className="w-full justify-start">
                   <Upload className="mr-2 h-4 w-4" />

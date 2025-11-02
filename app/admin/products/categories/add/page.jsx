@@ -62,9 +62,6 @@ export default function AddCategoryPage() {
     }
   }
 
-  const iconOptions = [
-    "📦", "🎮", "⚔️", "🚗", "💰", "🎯", "🛡️", "👤", "🗡️", "🔫"
-  ]
 
   return (
     <div className="min-h-screen p-6">

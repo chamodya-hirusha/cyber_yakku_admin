@@ -4,77 +4,46 @@ import pool from '@/lib/database'
 
 export async function GET() {
   try {
-    // Fetch categories from database
-    const [categories] = await pool.execute(`
+    const connection = await pool.getConnection()
+    
+    // Fetch categories from database - Category table with only id and name columns
+    const [categories] = await connection.execute(`
       SELECT
         id,
-        name,
-        description,
-        created_at as createdAt,
-        (SELECT COUNT(*) FROM products WHERE category_id = pc.id) as productCount
-      FROM product_categories pc
-      ORDER BY order_index ASC, name ASC
+        name
+      FROM Category
+      ORDER BY id ASC, name ASC
     `)
     
-    // Organize categories into hierarchy
-    const categoryMap = new Map()
-    const rootCategories = []
+    connection.release()
     
-    // First pass: create map of all categories
-    categories.forEach(category => {
-      categoryMap.set(category.id, {
-        ...category,
-        children: [],
-        icon: getCategoryIcon(category.name)
-      })
-    })
+    // Map categories with default values
+    const formattedCategories = categories.map(category => ({
+      id: category.id,
+      name: category.name,
+      productCount: 0, // Default to 0 since we don't have product count
+      children: []
+    }))
     
-    // Second pass: build hierarchy
-    categories.forEach(category => {
-      if (category.parentId) {
-        const parent = categoryMap.get(category.parentId)
-        if (parent) {
-          parent.children.push(categoryMap.get(category.id))
-        }
-      } else {
-        rootCategories.push(categoryMap.get(category.id))
-      }
-    })
+    console.log(`Loaded ${formattedCategories.length} categories`)
     
     return NextResponse.json({
       success: true,
-      data: rootCategories,
+      data: formattedCategories,
     })
   } catch (error) {
     console.error('Error fetching categories:', error)
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch categories' },
+      { success: false, error: `Failed to fetch categories: ${error.message}` },
       { status: 500 }
     )
   }
 }
 
-// Helper function to get category icon based on name
-function getCategoryIcon(name) {
-  const iconMap = {
-    'Skins': '🎮',
-    'Weapons': '⚔️',
-    'Vehicles': '🚗',
-    'Currency': '💰',
-    'Accessories': '🎯',
-    'Armor': '🛡️',
-    'Character Skins': '👤',
-    'Weapon Skins': '🔪',
-    'Swords': '🗡️',
-    'Guns': '🔫',
-  }
-  return iconMap[name] || '📦'
-}
-
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { name, description, parentId, order, columns } = body
+    const { name } = body
 
     if (!name || name.trim() === '') {
       return NextResponse.json(
@@ -87,7 +56,7 @@ export async function POST(request) {
 
     // Check if category with same name already exists
     const [existing] = await connection.execute(
-      'SELECT id FROM product_categories WHERE name = ?',
+      'SELECT id FROM Category WHERE name = ?',
       [name.trim()]
     )
 
@@ -99,40 +68,28 @@ export async function POST(request) {
       )
     }
 
-    // Use common category_items table instead of dynamic tables
-
-    // Insert new category
+    // Insert new category - only id and name columns
     const [result] = await connection.execute(`
-      INSERT INTO product_categories (name, description, parent_id, order_index, created_at, updated_at)
-      VALUES (?, ?, ?, ?, NOW(), NOW())
-    `, [
-      name.trim(),
-      description || null,
-      parentId || null,
-      order || 0
-    ])
+      INSERT INTO Category (name)
+      VALUES (?)
+    `, [name.trim()])
 
     const newCategoryId = result.insertId
 
     // Fetch the created category
     const [rows] = await connection.execute(`
-      SELECT
-        id,
-        name,
-        description,
-        parent_id as parentId,
-        created_at as createdAt,
-        (SELECT COUNT(*) FROM products WHERE category_id = pc.id) as productCount
-      FROM product_categories pc
+      SELECT id, name
+      FROM Category
       WHERE id = ?
     `, [newCategoryId])
 
     connection.release()
 
     const newCategory = {
-      ...rows[0],
-      children: [],
-      icon: getCategoryIcon(rows[0].name)
+      id: rows[0].id,
+      name: rows[0].name,
+      productCount: 0,
+      children: []
     }
 
     return NextResponse.json({
@@ -142,7 +99,7 @@ export async function POST(request) {
   } catch (error) {
     console.error('Error creating category:', error)
     return NextResponse.json(
-      { success: false, error: 'Failed to create category' },
+      { success: false, error: `Failed to create category: ${error.message}` },
       { status: 500 }
     )
   }

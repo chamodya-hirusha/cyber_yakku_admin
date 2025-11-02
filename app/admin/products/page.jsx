@@ -14,72 +14,63 @@ import {
   Trash2,
   Eye,
   Star,
+  Loader2,
 } from "lucide-react"
-
-const products = [
-  {
-    id: 1,
-    name: "Gaming Headset Pro",
-    category: "Audio",
-    price: 299.99,
-    stock: 45,
-    status: "active",
-    rating: 4.8,
-    sales: 234,
-    image: "🎧",
-  },
-  {
-    id: 2,
-    name: "Mechanical Keyboard RGB",
-    category: "Peripherals",
-    price: 199.99,
-    stock: 32,
-    status: "active",
-    rating: 4.6,
-    sales: 189,
-    image: "⌨️",
-  },
-  {
-    id: 3,
-    name: "Gaming Mouse Wireless",
-    category: "Peripherals",
-    price: 149.99,
-    stock: 0,
-    status: "out_of_stock",
-    rating: 4.7,
-    sales: 156,
-    image: "🖱️",
-  },
-  {
-    id: 4,
-    name: "Monitor 27\" 4K",
-    category: "Displays",
-    price: 599.99,
-    stock: 12,
-    status: "active",
-    rating: 4.9,
-    sales: 98,
-    image: "🖥️",
-  },
-  {
-    id: 5,
-    name: "Gaming Chair Pro",
-    category: "Furniture",
-    price: 399.99,
-    stock: 8,
-    status: "active",
-    rating: 4.5,
-    sales: 67,
-    image: "🪑",
-  },
-]
-
-const categories = ["All", "Audio", "Peripherals", "Displays", "Furniture"]
 
 export default function ProductsPage() {
   const [searchTerm, setSearchTerm] = React.useState("")
   const [selectedCategory, setSelectedCategory] = React.useState("All")
-  const [filteredProducts, setFilteredProducts] = React.useState(products)
+  const [products, setProducts] = React.useState([])
+  const [filteredProducts, setFilteredProducts] = React.useState([])
+  const [categories, setCategories] = React.useState(["All"])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState(null)
+
+  // Fetch products from API
+  const fetchProducts = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const response = await fetch('/api/products')
+      const result = await response.json()
+      
+      if (result.success) {
+        const productsData = result.data || []
+        
+        // Transform data to match component expectations
+        const transformedProducts = productsData.map(product => ({
+          id: product.product_id,
+          name: product.name,
+          category: product.category_name || 'Uncategorized',
+          price: parseFloat(product.price) || 0,
+          stock: parseInt(product.stock_quantity) || 0,
+          status: product.status || 'draft',
+          rating: 4.5, // Default rating since not in API
+          sales: 0, // Default sales since not in API
+          image: product.image_url || '📦', // Use product image or default package icon
+          image_url: product.image_url, // Store image URL separately
+          product: product // Keep original data for reference
+        }))
+        
+        setProducts(transformedProducts)
+        
+        // Extract unique categories
+        const uniqueCategories = [...new Set(transformedProducts.map(p => p.category))]
+        setCategories(['All', ...uniqueCategories])
+      } else {
+        setError(result.error || 'Failed to fetch products')
+      }
+    } catch (err) {
+      console.error('Error fetching products:', err)
+      setError('An error occurred while fetching products')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  React.useEffect(() => {
+    fetchProducts()
+  }, [])
 
   React.useEffect(() => {
     let filtered = products
@@ -95,7 +86,7 @@ export default function ProductsPage() {
     }
 
     setFilteredProducts(filtered)
-  }, [searchTerm, selectedCategory])
+  }, [searchTerm, selectedCategory, products])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -105,6 +96,8 @@ export default function ProductsPage() {
         return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
       case "inactive":
         return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300"
+      case "draft":
+        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300"
       default:
         return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300"
     }
@@ -118,9 +111,105 @@ export default function ProductsPage() {
         return "Out of Stock"
       case "inactive":
         return "Inactive"
+      case "draft":
+        return "Draft"
       default:
         return "Unknown"
     }
+  }
+
+  const handleView = (product) => {
+    // Navigate to product detail page or open modal
+    const productId = product.product?.product_id || product.id
+    window.location.href = `/admin/products/view/${productId}`
+  }
+
+  const handleEdit = (product) => {
+    // Navigate to product edit page
+    const productId = product.product?.product_id || product.id
+    window.location.href = `/admin/products/edit/${productId}`
+  }
+
+  const handleDelete = async (product) => {
+    if (confirm(`Are you sure you want to delete "${product.name}"? This action cannot be undone.`)) {
+      try {
+        const productId = product.product?.product_id || product.id
+        const response = await fetch(`/api/products/${productId}`, {
+          method: 'DELETE',
+        })
+        const result = await response.json()
+        
+        if (result.success) {
+          alert('Product deleted successfully')
+          fetchProducts() // Refresh the products list
+        } else {
+          alert(result.error || 'Failed to delete product')
+        }
+      } catch (error) {
+        console.error('Error deleting product:', error)
+        alert('An error occurred while deleting the product')
+      }
+    }
+  }
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Products</h1>
+            <p className="text-muted-foreground">
+              Manage your product catalog and inventory
+            </p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin mb-4" />
+            <p className="text-muted-foreground">Loading products...</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Products</h1>
+            <p className="text-muted-foreground">
+              Manage your product catalog and inventory
+            </p>
+          </div>
+          <Button 
+            className="bg-gradient-primary hover:opacity-90"
+            onClick={() => window.location.href = '/admin/products/add'}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Product
+          </Button>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Package className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Error Loading Products</h3>
+            <p className="text-muted-foreground text-center mb-4">
+              {error}
+            </p>
+            <Button 
+              className="bg-gradient-primary hover:opacity-90"
+              onClick={fetchProducts}
+            >
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -187,9 +276,6 @@ export default function ProductsPage() {
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3">
-                  <div className="h-12 w-12 rounded-lg bg-gradient-primary flex items-center justify-center text-2xl">
-                    {product.image}
-                  </div>
                   <div>
                     <CardTitle className="text-lg">{product.name}</CardTitle>
                     <CardDescription>{product.category}</CardDescription>
@@ -201,6 +287,19 @@ export default function ProductsPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Product Image */}
+              {product.image_url ? (
+                <img
+                  src={product.image_url}
+                  alt={product.name}
+                  className="w-full h-48 object-cover rounded-lg"
+                />
+              ) : (
+                <div className="w-full h-48 rounded-lg bg-gradient-primary flex items-center justify-center text-6xl">
+                  {product.image}
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
                 <span className="text-2xl font-bold">${product.price}</span>
                 <span
@@ -226,15 +325,29 @@ export default function ProductsPage() {
               </div>
 
               <div className="flex space-x-2">
-                <Button variant="outline" size="sm" className="flex-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleView(product)}
+                >
                   <Eye className="mr-2 h-3 w-3" />
                   View
                 </Button>
-                <Button variant="outline" size="sm" className="flex-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleEdit(product)}
+                >
                   <Edit className="mr-2 h-3 w-3" />
                   Edit
                 </Button>
-                <Button variant="outline" size="sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDelete(product)}
+                >
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>

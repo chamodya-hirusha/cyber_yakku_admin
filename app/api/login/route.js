@@ -1,10 +1,75 @@
+"use server";
 import { NextResponse } from 'next/server';
 import pool from '@/lib/database';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { loginSchema, validateFormData } from '@/lib/validation';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+export async function GET() {
+  try {
+    const connection = await pool.getConnection();
+    let rows;
+    try {
+      // Try selecting optional columns if they exist
+      [rows] = await connection.execute(`
+        SELECT 
+          id,
+          fullname AS name,
+          email,
+          role,
+          /* prefer status, fall back to stusta */
+          COALESCE(status, stusta) AS status,
+          /* support multiple naming styles */
+          COALESCE(joinDate, joindate, created_at) AS joinDate,
+          COALESCE(lastLogin, lastlogin, last_login) AS lastLogin,
+          permissions
+        FROM admin
+        ORDER BY id DESC
+      `);
+    } catch (err) {
+      // Fallback for schemas without status column
+      if (err && err.code === 'ER_BAD_FIELD_ERROR') {
+        [rows] = await connection.execute(`
+          SELECT id, fullname AS name, email
+          FROM admin
+          ORDER BY id DESC
+        `);
+      } else {
+        throw err;
+      }
+    }
+    connection.release();
+
+    const formattedAdmins = rows.map(admin => ({
+      id: admin.id,
+      name: admin.name,
+      email: admin.email,
+      role: admin.role || 'Admin',
+      status: typeof admin.status === 'number' || typeof admin.status === 'boolean'
+        ? Boolean(admin.status)
+        : true,
+      joinDate: admin.joinDate ? new Date(admin.joinDate).toISOString().split('T')[0] : '',
+      lastLogin: admin.lastLogin ? new Date(admin.lastLogin).toISOString().split('T')[0] : '',
+      permissions: (() => {
+        if (!admin.permissions) return [];
+        if (typeof admin.permissions === 'string') {
+          try {
+            const parsed = JSON.parse(admin.permissions);
+            return Array.isArray(parsed) ? parsed : String(admin.permissions).split(',').map(p => p.trim()).filter(Boolean);
+          } catch {
+            return String(admin.permissions).split(',').map(p => p.trim()).filter(Boolean);
+          }
+        }
+        return Array.isArray(admin.permissions) ? admin.permissions : [];
+      })(),
+    }));
+
+    return NextResponse.json({ success: true, data: formattedAdmins });
+  } catch (error) {
+    console.error('Error fetching admins:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to fetch administrators' },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(request) {
   try {
@@ -13,7 +78,7 @@ export async function POST(request) {
 
     if (!email || !password) {
       return NextResponse.json(
-        { success: false, error: 'Email and password are required' },
+        { success: false, error: 'Please provide both email and password' },
         { status: 400 }
       );
     }
@@ -21,96 +86,48 @@ export async function POST(request) {
     const connection = await pool.getConnection();
     try {
       const [rows] = await connection.execute(
-        'SELECT id, name, email, password, role, permissions, is_active FROM admin_users WHERE email = ?',
+        'SELECT * FROM admin WHERE email = ? LIMIT 1',
         [email]
       );
-      connection.release();
 
-      if (rows.length === 0) {
+      if (!rows.length || rows[0].password !== password) {
         return NextResponse.json(
-          { success: false, error: 'Invalid credentials' },
+          { success: false, error: 'Invalid email or password' },
           { status: 401 }
         );
       }
 
-      const user = rows[0];
-
-      if (!user.is_active) {
-        return NextResponse.json(
-          { success: false, error: 'Account is deactivated' },
-          { status: 401 }
-        );
-      }
-
-      const isPasswordValid = await bcrypt.compare(password, user.password);
-      if (!isPasswordValid) {
-        return NextResponse.json(
-          { success: false, error: 'Invalid credentials' },
-          { status: 401 }
-        );
-      }
-
-      // Generate JWT token
-      const token = jwt.sign(
-        {
-          userId: user.id,
-          email: user.email,
-          role: user.role,
-          permissions: user.permissions ? JSON.parse(user.permissions) : []
-        },
-        JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      // Update last login
-      const updateConnection = await pool.getConnection();
+      // Update last login time
       try {
-        await updateConnection.execute(
-          'UPDATE admin_users SET last_login = NOW() WHERE id = ?',
-          [user.id]
+        await connection.execute(
+          'UPDATE admin SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?',
+          [rows[0].id]
         );
-      } finally {
-        updateConnection.release();
-      }
-
-      // Create session
-      const sessionConnection = await pool.getConnection();
-      try {
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        await sessionConnection.execute(
-          'INSERT INTO user_sessions (user_id, token, expires_at, created_at) VALUES (?, ?, ?, NOW())',
-          [user.id, token, expiresAt]
-        );
-      } finally {
-        sessionConnection.release();
+      } catch (updateError) {
+        console.warn('Could not update last login time:', updateError);
       }
 
       return NextResponse.json({
         success: true,
         data: {
-          token,
+          token: 'your-token-generation-here', // You should implement proper token generation
           user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            permissions: user.permissions ? JSON.parse(user.permissions) : []
+            id: rows[0].id,
+            name: rows[0].fullname,
+            email: rows[0].email,
+            role: rows[0].role || 'Admin'
           }
         }
       });
-    } catch (dbError) {
+
+    } finally {
       connection.release();
-      console.error('Database error:', dbError);
-      return NextResponse.json(
-        { success: false, error: 'Database connection error' },
-        { status: 500 }
-      );
     }
 
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { success: false, error: 'An error occurred during login' },
       { status: 500 }
     );
   }

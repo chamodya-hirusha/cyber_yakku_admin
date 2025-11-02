@@ -1,75 +1,102 @@
 "use client"
 import { useState, useEffect } from "react"
-import {
-  ArrowLeft,
-  Plus,
-  Tag,
-  Search,
-  Edit,
-  Trash2,
-  X,
-  Save,
-  Settings
-} from "lucide-react"
-
-const categoryIcons = [
-  { value: "⚔️", label: "Weapons" },
-  { value: "🚗", label: "Vehicles" },
-  { value: "💰", label: "Currency" }
-]
-
-const initialData = {}
-
-const defaultColumns = ["id", "name", "brand", "model", "category", "status"]
+import { Plus, RefreshCw, Tag, X, Table2 } from "lucide-react"
 
 export default function CategoryManagementPage() {
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedIcon, setSelectedIcon] = useState(null)
-  const [categoryData, setCategoryData] = useState(initialData)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [refreshing, setRefreshing] = useState(false)
   const [showAddCategory, setShowAddCategory] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState("")
-  const [editingRow, setEditingRow] = useState(null)
-  const [showAddItem, setShowAddItem] = useState(false)
-  const [newItem, setNewItem] = useState({})
-  const [showColumnEditor, setShowColumnEditor] = useState(false)
-  const [tempColumns, setTempColumns] = useState([])
-  const [newColumnName, setNewColumnName] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState(null)
+  const [tableData, setTableData] = useState({
+    vehicles: [],
+    weapons: [],
+    skins: [],
+    currencies: []
+  })
+  const [loadingTableData, setLoadingTableData] = useState(false)
+  
+  // Form states
+  const [showAddForm, setShowAddForm] = useState(null) // 'vehicle', 'weapon', 'skin', 'currency'
+  const [formData, setFormData] = useState({
+    item_id: '',
+    name: '',
+    brand_id: '',
+    model_id: '',
+    type_id: ''
+  })
+  const [submitting, setSubmitting] = useState(false)
+  
+  // Dropdown data
+  const [brands, setBrands] = useState([])
+  const [models, setModels] = useState([])
+  const [types, setTypes] = useState([])
+  const [loadingDropdowns, setLoadingDropdowns] = useState(false)
+  
+  // Quick-add modal states
+  const [showQuickAddModal, setShowQuickAddModal] = useState(null) // 'brand', 'model', 'type'
+  const [quickAddData, setQuickAddData] = useState({ 
+    brand: { name: '', category_id: '' }, 
+    model: { name: '', brand_id: '' }, 
+    type: { name: '', category_id: '' } 
+  })
+  const [quickAddSubmitting, setQuickAddSubmitting] = useState(false)
 
-  // Fetch categories from API
   useEffect(() => {
     fetchCategories()
+    fetchDropdownData()
   }, [])
 
-  const fetchCategories = async () => {
+  const fetchDropdownData = async () => {
+    setLoadingDropdowns(true)
+    try {
+      const [brandsRes, modelsRes, typesRes] = await Promise.all([
+        fetch('/api/dropdowns/brands'),
+        fetch('/api/dropdowns/models'),
+        fetch('/api/dropdowns/types')
+      ])
+
+      const [brandsData, modelsData, typesData] = await Promise.all([
+        brandsRes.json(),
+        modelsRes.json(),
+        typesRes.json()
+      ])
+
+      if (brandsData.success) setBrands(brandsData.data || [])
+      if (modelsData.success) setModels(modelsData.data || [])
+      if (typesData.success) setTypes(typesData.data || [])
+    } catch (error) {
+      console.error('Error fetching dropdown data:', error)
+    } finally {
+      setLoadingDropdowns(false)
+    }
+  }
+
+  const fetchCategories = async (showRefreshing = false) => {
+    if (showRefreshing) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+    
     try {
       const response = await fetch('/api/categories')
       const result = await response.json()
+      
       if (result.success) {
-        setCategories(result.data)
-        // Load items for each category
-        const categoryDataTemp = {}
-        for (const category of result.data) {
-          try {
-            const itemsResponse = await fetch(`/api/categories/${category.id}/items`)
-            const itemsResult = await itemsResponse.json()
-            if (itemsResult.success) {
-              categoryDataTemp[category.icon] = {
-                columns: itemsResult.columns,
-                items: itemsResult.data
-              }
-            }
-          } catch (error) {
-            console.error(`Error fetching items for category ${category.id}:`, error)
-          }
-        }
-        setCategoryData(categoryDataTemp)
+        setCategories(result.data || [])
+        console.log('Categories loaded:', result.data?.length || 0, 'categories')
+      } else {
+        console.error('Failed to fetch categories:', result.error)
+        alert(result.error || 'Failed to load categories')
       }
     } catch (error) {
       console.error('Error fetching categories:', error)
+      alert('An error occurred while loading categories')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
@@ -86,20 +113,17 @@ export default function CategoryManagementPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          name: newCategoryName.trim(),
-          description: '',
-          order: categories.length,
-          columns: defaultColumns
+          name: newCategoryName.trim()
         }),
       })
 
       const result = await response.json()
 
       if (result.success) {
-        setCategories([...categories, result.data])
+        await fetchCategories()
         setNewCategoryName("")
         setShowAddCategory(false)
-        alert(`Category "${newCategoryName}" and its table created successfully!`)
+        alert(`Category "${newCategoryName.trim()}" created successfully!`)
       } else {
         alert(result.error || 'Failed to add category')
       }
@@ -109,331 +133,280 @@ export default function CategoryManagementPage() {
     }
   }
 
-  const handleIconClick = (icon) => {
-    setSelectedIcon(icon)
-    setSearchTerm("")
-    setShowAddItem(false)
-    setEditingRow(null)
-    
-    if (!categoryData[icon]) {
-      setCategoryData({
-        ...categoryData,
-        [icon]: {
-          columns: [...defaultColumns],
-          items: []
-        }
-      })
-    }
-  }
+  const handleCategorySelect = async (category) => {
+    setSelectedCategory(category)
+    setLoadingTableData(true)
 
-  const handleOpenColumnEditor = () => {
-    if (selectedIcon && categoryData[selectedIcon]) {
-      setTempColumns([...categoryData[selectedIcon].columns])
-      setShowColumnEditor(true)
-    }
-  }
+    try {
+      const response = await fetch(`/api/categories/${category.id}/items`)
+      const result = await response.json()
 
-  const handleAddColumn = () => {
-    if (newColumnName.trim()) {
-      setTempColumns([...tempColumns, newColumnName.toLowerCase().replace(/\s+/g, '_')])
-      setNewColumnName("")
-    }
-  }
-
-  const handleRemoveColumn = (index) => {
-    const cols = [...tempColumns]
-    cols.splice(index, 1)
-    setTempColumns(cols)
-  }
-
-  const handleSaveColumns = () => {
-    const updatedData = {...categoryData}
-    const currentItems = updatedData[selectedIcon].items
-    
-    // Update items to match new columns
-    const updatedItems = currentItems.map(item => {
-      const newItem = {}
-      tempColumns.forEach(col => {
-        newItem[col] = item[col] || ""
-      })
-      return newItem
-    })
-    
-    updatedData[selectedIcon] = {
-      columns: [...tempColumns],
-      items: updatedItems
-    }
-    
-    setCategoryData(updatedData)
-    setShowColumnEditor(false)
-    alert("Columns updated successfully!")
-  }
-
-  const initializeNewItem = () => {
-    const item = {}
-    if (selectedIcon && categoryData[selectedIcon]) {
-      categoryData[selectedIcon].columns.forEach(col => {
-        item[col] = col === 'status' ? 'Active' : ''
-      })
-    }
-    return item
-  }
-
-  const handleShowAddItem = () => {
-    setNewItem(initializeNewItem())
-    setShowAddItem(true)
-  }
-
-  const handleAddItem = async () => {
-    if (!selectedIcon) {
-      alert("Please select a category icon first!")
-      return
-    }
-
-    const selectedCategory = categories.find(cat => cat.icon === selectedIcon)
-    if (!selectedCategory) {
-      alert("Category not found!")
-      return
-    }
-
-    const requiredFields = categoryData[selectedIcon]?.columns.filter(col => col !== 'status') || []
-    const allFilled = requiredFields.every(field => newItem[field] && newItem[field].trim())
-
-    if (allFilled) {
-      try {
-        // Insert into the common category_items table
-        const response = await fetch(`/api/categories/${selectedCategory.id}/items`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newItem),
+      if (result.success) {
+        setTableData(result.data)
+      } else {
+        console.error('Failed to fetch category items:', result.error)
+        alert(result.error || 'Failed to load category items')
+        setTableData({
+          vehicles: [],
+          weapons: [],
+          skins: [],
+          currencies: []
         })
-
-        const result = await response.json()
-
-        if (result.success) {
-          // Update local state
-          const updatedData = {...categoryData}
-          if (!updatedData[selectedIcon]) {
-            updatedData[selectedIcon] = { columns: defaultColumns, items: [] }
-          }
-          updatedData[selectedIcon].items = [...updatedData[selectedIcon].items, result.data]
-          setCategoryData(updatedData)
-          setNewItem({})
-          setShowAddItem(false)
-          alert("Item added successfully!")
-          // Refresh categories to update counts
-          fetchCategories()
-        } else {
-          alert(result.error || 'Failed to add item')
-        }
-      } catch (error) {
-        console.error('Error adding item:', error)
-        alert('An error occurred while adding the item')
       }
-    } else {
-      alert("Please fill all required fields!")
+    } catch (error) {
+      console.error('Error fetching category items:', error)
+      alert('An error occurred while loading category items')
+      setTableData({
+        vehicles: [],
+        weapons: [],
+        skins: [],
+        currencies: []
+      })
+    } finally {
+      setLoadingTableData(false)
     }
   }
 
-  const handleUpdateItem = (index, field, value) => {
-    const updatedData = {...categoryData}
-    updatedData[selectedIcon].items[index][field] = value
-    setCategoryData(updatedData)
-  }
-
-  const handleSaveEdit = () => {
-    setEditingRow(null)
-    alert("Changes saved successfully!")
-  }
-
-  const handleDeleteItem = (index) => {
-    if (confirm("Are you sure you want to delete this item?")) {
-      const updatedData = {...categoryData}
-      updatedData[selectedIcon].items.splice(index, 1)
-      setCategoryData(updatedData)
-      alert("Item deleted successfully!")
+  // Determine which table types have data and should be shown
+  const getVisibleTableTypes = () => {
+    if (!selectedCategory) {
+      return []
     }
-  }
 
-  const getFilteredData = () => {
-    if (!selectedIcon || !categoryData[selectedIcon]) return []
+    const types = []
     
-    return categoryData[selectedIcon].items.filter(item =>
-      Object.values(item).some(val => 
-        val.toString().toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    )
+    // Only show table types that have data in this category
+    if (tableData.vehicles.length > 0) types.push('vehicle')
+    if (tableData.weapons.length > 0) types.push('weapon')
+    if (tableData.skins.length > 0) types.push('skin')
+    if (tableData.currencies.length > 0) types.push('currency')
+    
+    // If no data exists yet, try to infer from category name
+    if (types.length === 0) {
+      const categoryName = selectedCategory.name.toLowerCase()
+      if (categoryName.includes('vehicle') || categoryName.includes('veh')) {
+        types.push('vehicle')
+      } else if (categoryName.includes('weapon') || categoryName.includes('wep')) {
+        types.push('weapon')
+      } else if (categoryName.includes('skin')) {
+        types.push('skin')
+      } else if (categoryName.includes('currency') || categoryName.includes('curr')) {
+        types.push('currency')
+      } else {
+        // If can't determine, show all buttons so user can add any type
+        return ['vehicle', 'weapon', 'skin', 'currency']
+      }
+    }
+    
+    return types
   }
 
-  const getColumnLabel = (col) => {
-    return col.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+  const visibleTableTypes = getVisibleTableTypes()
+
+  const handleCloseTable = () => {
+    setSelectedCategory(null)
+    setTableData({
+      vehicles: [],
+      weapons: [],
+      skins: [],
+      currencies: []
+    })
+    setShowAddForm(null)
+    setFormData({ item_id: '', name: '', brand_id: '', model_id: '', type_id: '' })
   }
 
-  const renderTable = () => {
-    if (!selectedIcon) {
-      return (
-        <div className="text-center py-20 text-gray-500">
-          <Tag className="h-16 w-16 mx-auto mb-4 opacity-30" />
-          <p className="text-lg">Click on a Category Icon to view items</p>
-        </div>
-      )
+  const getItemIdLabel = () => {
+    switch (showAddForm) {
+      case 'vehicle':
+        return 'Vehicle ID'
+      case 'weapon':
+        return 'Weapon ID'
+      case 'skin':
+        return 'Skin ID'
+      case 'currency':
+        return 'Currency ID'
+      default:
+        return 'ID'
+    }
+  }
+
+  const getModalColor = () => {
+    switch (showAddForm) {
+      case 'vehicle':
+        return { bg: 'bg-blue-50 dark:bg-blue-900/20', border: 'border-blue-500', text: 'text-blue-600', button: 'bg-blue-600 hover:bg-blue-700' }
+      case 'weapon':
+        return { bg: 'bg-purple-50 dark:bg-purple-900/20', border: 'border-purple-500', text: 'text-purple-600', button: 'bg-purple-600 hover:bg-purple-700' }
+      case 'skin':
+        return { bg: 'bg-green-50 dark:bg-green-900/20', border: 'border-green-500', text: 'text-green-600', button: 'bg-green-600 hover:bg-green-700' }
+      case 'currency':
+        return { bg: 'bg-yellow-50 dark:bg-yellow-900/20', border: 'border-yellow-500', text: 'text-yellow-600', button: 'bg-yellow-600 hover:bg-yellow-700' }
+      default:
+        return { bg: 'bg-gray-50 dark:bg-gray-900/20', border: 'border-gray-500', text: 'text-gray-600', button: 'bg-gray-600 hover:bg-gray-700' }
+    }
+  }
+
+  const handleOpenAddForm = (tableType) => {
+    if (!selectedCategory) {
+      alert('Please select a category first')
+      return
+    }
+    setShowAddForm(tableType)
+    setFormData({ item_id: '', name: '', brand_id: '', model_id: '', type_id: '' })
+  }
+
+  const handleCloseAddForm = () => {
+    setShowAddForm(null)
+    setFormData({ item_id: '', name: '', brand_id: '', model_id: '', type_id: '' })
+  }
+
+  const handleOpenQuickAddModal = (type) => {
+    setShowQuickAddModal(type)
+    // Reset quick add data for this type
+    if (type === 'brand') {
+      setQuickAddData({ ...quickAddData, brand: { name: '', category_id: selectedCategory?.id?.toString() || '' } })
+    } else if (type === 'model') {
+      setQuickAddData({ ...quickAddData, model: { name: '', brand_id: formData.brand_id || '' } })
+    } else if (type === 'type') {
+      setQuickAddData({ ...quickAddData, type: { name: '', category_id: selectedCategory?.id?.toString() || '' } })
+    }
+  }
+
+  const handleCloseQuickAddModal = () => {
+    setShowQuickAddModal(null)
+    setQuickAddData({ 
+      brand: { name: '', category_id: '' }, 
+      model: { name: '', brand_id: '' }, 
+      type: { name: '', category_id: '' } 
+    })
+  }
+
+  const handleQuickAdd = async (e) => {
+    e.preventDefault()
+    const type = showQuickAddModal
+    if (!type) return
+
+    const data = quickAddData[type]
+    
+    if (type === 'brand' || type === 'type') {
+      if (!data.name || !data.name.trim()) {
+        alert(`Please enter a ${type} name`)
+        return
+      }
+      if (!data.category_id) {
+        alert('Please select a category')
+        return
+      }
+    } else if (type === 'model') {
+      if (!data.name || !data.name.trim()) {
+        alert('Please enter a model name')
+        return
+      }
+      if (!data.brand_id) {
+        alert('Please select a brand')
+        return
+      }
     }
 
-    const filteredData = getFilteredData()
-    const columns = categoryData[selectedIcon].columns
+    setQuickAddSubmitting(true)
 
-    if (filteredData.length === 0 && !showAddItem) {
-      return (
-        <div className="text-center py-20 text-gray-500">
-          <Search className="h-16 w-16 mx-auto mb-4 opacity-30" />
-          <p className="text-lg">No items found in this category</p>
-          <button
-            onClick={handleShowAddItem}
-            className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Add First Item
-          </button>
-        </div>
-      )
+    try {
+      const endpoint = `/api/dropdowns/${type === 'brand' ? 'brands' : type === 'model' ? 'models' : 'types'}`
+      const body = type === 'model' 
+        ? { name: data.name.trim(), brand_id: data.brand_id }
+        : { name: data.name.trim(), category_id: data.category_id }
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Refresh dropdown data
+        await fetchDropdownData()
+        
+        // Auto-select the newly created item
+        if (type === 'brand') {
+          setFormData({ ...formData, brand_id: result.data.id.toString() })
+        } else if (type === 'model') {
+          setFormData({ ...formData, model_id: result.data.id.toString() })
+        } else if (type === 'type') {
+          setFormData({ ...formData, type_id: result.data.id.toString() })
+        }
+        
+        // Close modal
+        handleCloseQuickAddModal()
+        alert(`${type.charAt(0).toUpperCase() + type.slice(1)} created successfully!`)
+      } else {
+        alert(result.error || `Failed to add ${type}`)
+      }
+    } catch (error) {
+      console.error(`Error adding ${type}:`, error)
+      alert(`An error occurred while creating the ${type}`)
+    } finally {
+      setQuickAddSubmitting(false)
+    }
+  }
+
+  const handleSubmitForm = async (e) => {
+    e.preventDefault()
+    if (!formData.name.trim()) {
+      alert('Please enter a name')
+      return
     }
 
+    if (!selectedCategory) {
+      alert('Please select a category first')
+      return
+    }
+
+    setSubmitting(true)
+
+    try {
+      const response = await fetch(`/api/categories/${selectedCategory.id}/items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tableType: showAddForm,
+          item_id: formData.item_id || null,
+          name: formData.name.trim(),
+          brand_id: formData.brand_id || null,
+          model_id: formData.model_id || null,
+          type_id: formData.type_id || null
+        }),
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        // Refresh table data
+        await handleCategorySelect(selectedCategory)
+        handleCloseAddForm()
+        alert(`${showAddForm} created successfully!`)
+      } else {
+        alert(result.error || `Failed to add ${showAddForm}`)
+      }
+    } catch (error) {
+      console.error('Error submitting form:', error)
+      alert('An error occurred while creating the item')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) {
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-100 dark:bg-gray-800">
-            <tr>
-              {columns.map(col => (
-                <th key={col} className="px-6 py-4 text-left text-sm font-semibold">
-                  {getColumnLabel(col)}
-                </th>
-              ))}
-              <th className="px-6 py-4 text-left text-sm font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {showAddItem && (
-              <tr className="bg-blue-50 dark:bg-blue-900">
-                {columns.map(col => (
-                  <td key={col} className="px-6 py-4">
-                    {col === 'status' ? (
-                      <select
-                        value={newItem[col] || 'Active'}
-                        onChange={(e) => setNewItem({...newItem, [col]: e.target.value})}
-                        className="w-full px-2 py-1 border rounded text-sm"
-                      >
-                        <option>Active</option>
-                        <option>Inactive</option>
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        placeholder={getColumnLabel(col)}
-                        value={newItem[col] || ''}
-                        onChange={(e) => setNewItem({...newItem, [col]: e.target.value})}
-                        className="w-full px-2 py-1 border rounded text-sm"
-                      />
-                    )}
-                  </td>
-                ))}
-                <td className="px-6 py-4">
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={handleAddItem}
-                      className="p-2 bg-green-600 text-white rounded hover:bg-green-700"
-                    >
-                      <Save className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAddItem(false)
-                        setNewItem({})
-                      }}
-                      className="p-2 bg-gray-400 text-white rounded hover:bg-gray-500"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {filteredData.map((item, index) => (
-              <tr key={item.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-800 transition">
-                {columns.map(col => (
-                  <td key={col} className="px-6 py-4 text-sm">
-                    {editingRow === index ? (
-                      col === 'status' ? (
-                        <select
-                          value={item[col]}
-                          onChange={(e) => handleUpdateItem(index, col, e.target.value)}
-                          className="w-full px-2 py-1 border rounded"
-                        >
-                          <option>Active</option>
-                          <option>Inactive</option>
-                        </select>
-                      ) : (
-                        <input
-                          type="text"
-                          value={item[col] || ''}
-                          onChange={(e) => handleUpdateItem(index, col, e.target.value)}
-                          className="w-full px-2 py-1 border rounded"
-                        />
-                      )
-                    ) : (
-                      col === 'status' ? (
-                        <span className="px-3 py-1 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded-full text-xs font-medium">
-                          {item[col]}
-                        </span>
-                      ) : col === 'category' || col === 'currency_type' ? (
-                        <span className="px-3 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full text-xs font-medium">
-                          {item[col]}
-                        </span>
-                      ) : (
-                        item[col]
-                      )
-                    )}
-                  </td>
-                ))}
-                <td className="px-6 py-4 text-sm">
-                  <div className="flex space-x-2">
-                    {editingRow === index ? (
-                      <>
-                        <button
-                          onClick={handleSaveEdit}
-                          className="p-2 bg-green-600 text-white rounded hover:bg-green-700"
-                        >
-                          <Save className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => setEditingRow(null)}
-                          className="p-2 bg-gray-400 text-white rounded hover:bg-gray-500"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setEditingRow(index)}
-                          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteItem(index)}
-                          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-red-600 transition"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading categories...</p>
+        </div>
       </div>
     )
   }
@@ -441,27 +414,34 @@ export default function CategoryManagementPage() {
   return (
     <div className="p-6">
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <button className="px-3 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition">
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div>
-              <h1 className="text-3xl font-bold">Category Management</h1>
-              <p className="text-gray-600 dark:text-gray-400">
-                Click on a category icon to manage items
-              </p>
-            </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Category Management</h1>
+            <p className="text-muted-foreground">
+              Manage product categories
+            </p>
           </div>
-          <button
-            onClick={() => setShowAddCategory(!showAddCategory)}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:opacity-90 transition flex items-center shadow-lg"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            Add Category
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchCategories(true)}
+              disabled={refreshing || loading}
+              className="px-4 py-2 border rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition flex items-center disabled:opacity-50"
+            >
+              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              {refreshing ? 'Refreshing...' : 'Refresh'}
+            </button>
+            <button
+              onClick={() => setShowAddCategory(!showAddCategory)}
+              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:opacity-90 transition flex items-center shadow-lg"
+            >
+              <Plus className="mr-2 h-5 w-5" />
+              Add Category
+            </button>
+          </div>
         </div>
 
+        {/* Add Category Form */}
         {showAddCategory && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border-2 border-blue-500">
             <h3 className="text-lg font-semibold mb-4">Create New Category</h3>
@@ -472,6 +452,11 @@ export default function CategoryManagementPage() {
                 value={newCategoryName}
                 onChange={(e) => setNewCategoryName(e.target.value)}
                 className="flex-1 px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAddCategory()
+                  }
+                }}
               />
               <button
                 onClick={handleAddCategory}
@@ -492,144 +477,562 @@ export default function CategoryManagementPage() {
           </div>
         )}
 
-        {showColumnEditor && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border-2 border-purple-500">
-            <h3 className="text-lg font-semibold mb-4">Edit Table Columns</h3>
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Enter new column name..."
-                  value={newColumnName}
-                  onChange={(e) => setNewColumnName(e.target.value)}
-                  className="flex-1 px-4 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 outline-none"
-                />
-                <button
-                  onClick={handleAddColumn}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  <Plus className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {tempColumns.map((col, idx) => (
-                  <div key={idx} className="flex items-center gap-2 px-3 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                    <span className="text-sm font-medium">{getColumnLabel(col)}</span>
-                    <button
-                      onClick={() => handleRemoveColumn(idx)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => setShowColumnEditor(false)}
-                  className="px-6 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white rounded-lg hover:bg-gray-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveColumns}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  Save Columns
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {/* Categories List */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-2">
-              <Tag className="h-6 w-6 text-blue-600" />
-              <h2 className="text-2xl font-semibold">Category Icons</h2>
-            </div>
-            {selectedIcon && (
-              <div className="flex items-center space-x-4">
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  Selected: <span className="text-2xl ml-2">{selectedIcon}</span>
-                </span>
-                <button
-                  onClick={handleOpenColumnEditor}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center"
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  Edit Columns
-                </button>
-                {!showAddItem && (
-                  <button
-                    onClick={handleShowAddItem}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Item
-                  </button>
-                )}
-              </div>
-            )}
+          <div className="flex items-center space-x-2 mb-6">
+            <Tag className="h-6 w-6 text-blue-600" />
+            <h2 className="text-2xl font-semibold">Categories</h2>
+            <span className="text-sm text-gray-500">({categories.length})</span>
           </div>
-          <div className="grid grid-cols-8 gap-3">
-            {loading ? (
-              <div className="col-span-8 text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-2 text-gray-600">Loading categories...</p>
-              </div>
-            ) : categories.length === 0 ? (
-              <div className="col-span-8 text-center py-8 text-gray-500">
-                <Tag className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                <p className="text-lg">No categories found</p>
-                <p className="text-sm">Create your first category to get started</p>
-              </div>
-            ) : (
-              categories.map((category) => (
-                <button
+
+          {categories.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <Tag className="h-16 w-16 mx-auto mb-4 opacity-30" />
+              <p className="text-lg">No categories found</p>
+              <p className="text-sm">Create your first category to get started</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {categories.map((category) => (
+                <div
                   key={category.id}
-                  onClick={() => handleIconClick(category.icon)}
-                  className={`h-20 flex flex-col items-center justify-center space-y-2 rounded-lg border-2 transition ${
-                    selectedIcon === category.icon
-                      ? 'border-blue-600 bg-blue-50 dark:bg-blue-900 shadow-lg scale-105'
-                      : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:shadow'
+                  onClick={() => handleCategorySelect(category)}
+                  className={`p-4 border rounded-lg hover:shadow-md transition cursor-pointer ${
+                    selectedCategory?.id === category.id
+                      ? 'bg-blue-100 dark:bg-blue-900 border-blue-500 ring-2 ring-blue-500'
+                      : 'bg-gray-50 dark:bg-gray-700'
                   }`}
                 >
-                  <span className="text-3xl">{category.icon}</span>
-                  <span className="text-xs font-medium">{category.name}</span>
-                  <span className="text-xs text-blue-600 font-bold">
-                    ({category.productCount})
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-lg">{category.name}</h3>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {selectedIcon && (
+        {/* Data Table */}
+        {selectedCategory && (
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">
-                Items in {selectedIcon} {categoryIcons.find(i => i.value === selectedIcon)?.label}
-              </h2>
-              <div className="relative flex-1 max-w-md ml-4">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search items..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-12 pr-4 py-2 border-2 rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
-                />
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-2">
+                <Table2 className="h-6 w-6 text-blue-600" />
+                <h2 className="text-2xl font-semibold">
+                  Category: {selectedCategory.name}
+                </h2>
               </div>
+              <button
+                onClick={handleCloseTable}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {loadingTableData ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading data...</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Vehicles Table */}
+                {visibleTableTypes.includes('vehicle') && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-blue-600">
+                      Vehicles ({tableData.vehicles.length})
+                    </h3>
+                    <button
+                      onClick={() => handleOpenAddForm('vehicle')}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center text-sm"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Vehicle
+                    </button>
+                  </div>
+
+                  {tableData.vehicles.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300 dark:border-gray-600">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-700">
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Vehicle ID</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Brand Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Model Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Type Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Category Name</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tableData.vehicles.map((vehicle) => (
+                            <tr key={vehicle.vehicle_id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{vehicle.vehicle_id}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{vehicle.name}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{vehicle.brand_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{vehicle.model_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{vehicle.type_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{vehicle.category_name || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                )}
+
+                {/* Weapons Table */}
+                {visibleTableTypes.includes('weapon') && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-purple-600">
+                      Weapons ({tableData.weapons.length})
+                    </h3>
+                    <button
+                      onClick={() => handleOpenAddForm('weapon')}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition flex items-center text-sm"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Weapon
+                    </button>
+                  </div>
+
+                  {tableData.weapons.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300 dark:border-gray-600">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-700">
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Weapon ID</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Model Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Brand Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Type Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Category Name</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tableData.weapons.map((weapon) => (
+                            <tr key={weapon.weapon_id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{weapon.weapon_id}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{weapon.name}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{weapon.model_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{weapon.brand_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{weapon.type_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{weapon.category_name || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                )}
+
+                {/* Skins Table */}
+                {visibleTableTypes.includes('skin') && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-green-600">
+                      Skins ({tableData.skins.length})
+                    </h3>
+                    <button
+                      onClick={() => handleOpenAddForm('skin')}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center text-sm"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Skin
+                    </button>
+                  </div>
+
+                  {tableData.skins.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300 dark:border-gray-600">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-700">
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Skin ID</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Brand Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Model Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Type Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Category Name</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tableData.skins.map((skin) => (
+                            <tr key={skin.skin_id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{skin.skin_id}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{skin.name}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{skin.brand_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{skin.model_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{skin.type_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{skin.category_name || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                )}
+
+                {/* Currencies Table */}
+                {visibleTableTypes.includes('currency') && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-yellow-600">
+                      Currencies ({tableData.currencies.length})
+                    </h3>
+                    <button
+                      onClick={() => handleOpenAddForm('currency')}
+                      className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition flex items-center text-sm"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Currency
+                    </button>
+                  </div>
+
+                  {tableData.currencies.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse border border-gray-300 dark:border-gray-600">
+                        <thead>
+                          <tr className="bg-gray-100 dark:bg-gray-700">
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Currency ID</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Type Name</th>
+                            <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left">Category Name</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tableData.currencies.map((currency) => (
+                            <tr key={currency.currency_id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{currency.currency_id}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{currency.name}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{currency.type_name || '-'}</td>
+                              <td className="border border-gray-300 dark:border-gray-600 px-4 py-2">{currency.category_name || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+                )}
+
+                {/* Empty State */}
+                {tableData.vehicles.length === 0 &&
+                  tableData.weapons.length === 0 &&
+                  tableData.skins.length === 0 &&
+                  tableData.currencies.length === 0 && (
+                    <div className="text-center py-12 text-gray-500">
+                      <Table2 className="h-16 w-16 mx-auto mb-4 opacity-30" />
+                      <p className="text-lg">No items found in this category</p>
+                      <p className="text-sm">Click the "Add" button above to create items for this category</p>
+                    </div>
+                  )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Add Item Modal */}
+        {showAddForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={handleCloseAddForm}>
+            <div className={`${getModalColor().bg} rounded-lg shadow-xl p-6 max-w-2xl w-full mx-4 border-2 ${getModalColor().border}`} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className={`text-xl font-semibold ${getModalColor().text}`}>
+                  Add New {showAddForm.charAt(0).toUpperCase() + showAddForm.slice(1)}
+                </h3>
+                <button
+                  onClick={handleCloseAddForm}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitForm} className="space-y-4">
+                {/* Category Display */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={selectedCategory ? `${selectedCategory.name} (ID: ${selectedCategory.id})` : ''}
+                    disabled
+                    className="w-full px-3 py-2 border rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+                  />
+                </div>
+
+                {/* ID Field */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">{getItemIdLabel()} (Optional)</label>
+                  <input
+                    type="number"
+                    value={formData.item_id}
+                    onChange={(e) => setFormData({ ...formData, item_id: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder={`Enter ${getItemIdLabel()} or leave empty for auto-increment`}
+                  />
+                </div>
+
+                {/* Name Field */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder={`${showAddForm.charAt(0).toUpperCase() + showAddForm.slice(1)} name`}
+                  />
+                </div>
+
+                {/* Dynamic Fields Based on Type */}
+                {(showAddForm === 'vehicle' || showAddForm === 'weapon' || showAddForm === 'skin') && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Brand Field */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium">Brand</label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuickAddModal('brand')}
+                          className={`text-xs ${getModalColor().text} hover:opacity-80 flex items-center`}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add New
+                        </button>
+                      </div>
+                      <select
+                        value={formData.brand_id}
+                        onChange={(e) => setFormData({ ...formData, brand_id: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">Select Brand</option>
+                        {brands.map((brand) => (
+                          <option key={brand.id} value={brand.id}>
+                            {brand.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Model Field */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium">Model</label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuickAddModal('model')}
+                          className={`text-xs ${getModalColor().text} hover:opacity-80 flex items-center`}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add New
+                        </button>
+                      </div>
+                      <select
+                        value={formData.model_id}
+                        onChange={(e) => setFormData({ ...formData, model_id: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">Select Model</option>
+                        {models.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Type Field */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium">Type</label>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuickAddModal('type')}
+                          className={`text-xs ${getModalColor().text} hover:opacity-80 flex items-center`}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add New
+                        </button>
+                      </div>
+                      <select
+                        value={formData.type_id}
+                        onChange={(e) => setFormData({ ...formData, type_id: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">Select Type</option>
+                        {types.map((type) => (
+                          <option key={type.id} value={type.id}>
+                            {type.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Type Field for Currency */}
+                {showAddForm === 'currency' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium">Type</label>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenQuickAddModal('type')}
+                        className={`text-xs ${getModalColor().text} hover:opacity-80 flex items-center`}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add New
+                      </button>
+                    </div>
+                    <select
+                      value={formData.type_id}
+                      onChange={(e) => setFormData({ ...formData, type_id: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="">Select Type</option>
+                      {types.map((type) => (
+                        <option key={type.id} value={type.id}>
+                          {type.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Submit Buttons */}
+                <div className="flex gap-2 justify-end pt-4">
+                  <button
+                    type="button"
+                    onClick={handleCloseAddForm}
+                    className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                  >
+                    {submitting ? 'Creating...' : `Create ${showAddForm.charAt(0).toUpperCase() + showAddForm.slice(1)}`}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-          {renderTable()}
-        </div>
+        {/* Quick Add Modal for Brand/Model/Type */}
+        {showQuickAddModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={handleCloseQuickAddModal}>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full mx-4 border-2 border-gray-300 dark:border-gray-600" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-semibold text-gray-800 dark:text-white">
+                  Add New {showQuickAddModal.charAt(0).toUpperCase() + showQuickAddModal.slice(1)}
+                </h3>
+                <button
+                  onClick={handleCloseQuickAddModal}
+                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleQuickAdd} className="space-y-4">
+                {/* Category Selection for Brand and Type */}
+                {(showQuickAddModal === 'brand' || showQuickAddModal === 'type') && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Category *</label>
+                    <select
+                      required
+                      value={quickAddData[showQuickAddModal].category_id}
+                      onChange={(e) => setQuickAddData({
+                        ...quickAddData,
+                        [showQuickAddModal]: { ...quickAddData[showQuickAddModal], category_id: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="">Select Category</option>
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Brand Selection for Model */}
+                {showQuickAddModal === 'model' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Brand *</label>
+                    <select
+                      required
+                      value={quickAddData.model.brand_id}
+                      onChange={(e) => setQuickAddData({
+                        ...quickAddData,
+                        model: { ...quickAddData.model, brand_id: e.target.value }
+                      })}
+                      className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                    >
+                      <option value="">Select Brand</option>
+                      {brands.map((brand) => (
+                        <option key={brand.id} value={brand.id}>
+                          {brand.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Name Field */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={quickAddData[showQuickAddModal].name}
+                    onChange={(e) => setQuickAddData({
+                      ...quickAddData,
+                      [showQuickAddModal]: { ...quickAddData[showQuickAddModal], name: e.target.value }
+                    })}
+                    className="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder={`${showQuickAddModal.charAt(0).toUpperCase() + showQuickAddModal.slice(1)} name`}
+                  />
+                </div>
+
+                {/* Submit Buttons */}
+                <div className="flex gap-2 justify-end pt-4">
+                  <button
+                    type="button"
+                    onClick={handleCloseQuickAddModal}
+                    className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={quickAddSubmitting}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                  >
+                    {quickAddSubmitting ? 'Creating...' : 'Create'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
+

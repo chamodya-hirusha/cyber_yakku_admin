@@ -33,39 +33,6 @@ A modern admin panel built with Next.js 15, MySQL, and Tailwind CSS.
    ```
    Update the `.env` file with your database credentials and JWT secret.
 
-3. **Set up MySQL database**:
-   Create a database named `cms_db` and run the following SQL to create required tables:
-
-   ```sql
-   CREATE TABLE IF NOT EXISTS admin_users (
-     id INT AUTO_INCREMENT PRIMARY KEY,
-     name VARCHAR(255) NOT NULL,
-     email VARCHAR(255) NOT NULL UNIQUE,
-     password VARCHAR(255) NOT NULL,
-     role VARCHAR(50) DEFAULT 'ADMIN',
-     permissions JSON NULL,
-     is_active TINYINT(1) DEFAULT 1,
-     last_login DATETIME NULL,
-     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-   );
-
-   CREATE TABLE IF NOT EXISTS user_sessions (
-     id INT AUTO_INCREMENT PRIMARY KEY,
-     user_id INT NOT NULL,
-     token TEXT NOT NULL,
-     expires_at DATETIME NOT NULL,
-     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-     INDEX (token(255)),
-     FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
-   );
-   ```
-
-4. **Create an admin user**:
-   ```sql
-   INSERT INTO admin_users (name, email, password, role, permissions, is_active)
-   VALUES ('Admin', 'admin@cyberyakku.com', '$2a$10$YourBcryptHashHere', 'ADMIN', JSON_ARRAY(), 1);
-   ```
 
 5. **Run the development server**:
    ```bash
